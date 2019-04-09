@@ -66,6 +66,7 @@ type Request struct {
 	Body     string
 }
 
+// NewRequest is used shortly create Request
 func NewRequest() (req *Request) {
 	return &Request{
 		Headers: map[string]string{},
@@ -163,6 +164,7 @@ func DoRequest(request *Request) (response *Response, err error) {
 	return
 }
 
+// SDKError struct is used save error code and message
 type SDKError struct {
 	Code    string
 	Message string
@@ -172,6 +174,7 @@ func (err *SDKError) Error() string {
 	return fmt.Sprintf("SDKError: %s %s", err.Code, err.Message)
 }
 
+// NewSDKError is used for shortly create SDKError object
 func NewSDKError(obj map[string]interface{}) *SDKError {
 	err := &SDKError{}
 	if val, ok := obj["code"].(int); ok {
