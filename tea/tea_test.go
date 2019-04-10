@@ -1,9 +1,8 @@
-package tea_test
+package tea
 
 import (
 	"testing"
 
-	"github.com/aliyun/tea"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,7 +13,7 @@ func TestConvert(t *testing.T) {
 	out := &struct {
 		Key string
 	}{}
-	err := tea.Convert(in, out)
+	err := Convert(in, out)
 	assert.Nil(t, err)
 	assert.Equal(t, "value", out.Key)
 }
@@ -26,7 +25,7 @@ func TestConvertNonPtr(t *testing.T) {
 	out := struct {
 		Key string
 	}{}
-	err := tea.Convert(in, out)
+	err := Convert(in, out)
 	assert.NotNil(t, err)
 	assert.Equal(t, "The out parameter must be pointer", err.Error())
 }
@@ -38,13 +37,13 @@ func TestConvertType(t *testing.T) {
 	out := &struct {
 		Key int
 	}{}
-	err := tea.Convert(in, out)
+	err := Convert(in, out)
 	assert.NotNil(t, err)
 	assert.Equal(t, "Convert type fails for field: key, expect type: int, current type: string", err.Error())
 }
 
 func TestSDKError(t *testing.T) {
-	err := tea.NewSDKError(map[string]interface{}{
+	err := NewSDKError(map[string]interface{}{
 		"code":    "code",
 		"message": "message",
 	})
@@ -53,7 +52,7 @@ func TestSDKError(t *testing.T) {
 }
 
 func TestSDKErrorCode404(t *testing.T) {
-	err := tea.NewSDKError(map[string]interface{}{
+	err := NewSDKError(map[string]interface{}{
 		"code":    404,
 		"message": "message",
 	})
