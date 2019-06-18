@@ -3,7 +3,7 @@ package tea
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/alibabacloud-go/tea/utils"
 )
 
 func TestConvert(t *testing.T) {
@@ -11,11 +11,11 @@ func TestConvert(t *testing.T) {
 		"key": "value",
 	}
 	out := &struct {
-		Key string
+		Key string `json:"key"`
 	}{}
 	err := Convert(in, out)
-	assert.Nil(t, err)
-	assert.Equal(t, "value", out.Key)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "value", out.Key)
 }
 
 func TestConvertNonPtr(t *testing.T) {
@@ -23,11 +23,11 @@ func TestConvertNonPtr(t *testing.T) {
 		"key": "value",
 	}
 	out := struct {
-		Key string
+		Key string `json:"key"`
 	}{}
 	err := Convert(in, out)
-	assert.NotNil(t, err)
-	assert.Equal(t, "The out parameter must be pointer", err.Error())
+	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, "The out parameter must be pointer", err.Error())
 }
 
 func TestConvertType(t *testing.T) {
@@ -35,20 +35,25 @@ func TestConvertType(t *testing.T) {
 		"key": "value",
 	}
 	out := &struct {
-		Key int
+		Key int `json:"key"`
 	}{}
 	err := Convert(in, out)
-	assert.NotNil(t, err)
-	assert.Equal(t, "Convert type fails for field: key, expect type: int, current type: string", err.Error())
+	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, "Convert type fails for field: key, expect type: int, current type: string", err.Error())
 }
 
 func TestSDKError(t *testing.T) {
 	err := NewSDKError(map[string]interface{}{
 		"code":    "code",
 		"message": "message",
+		"data": map[string]interface{}{
+			"httpCode":  "404",
+			"requestId": "dfadfa32cgfdcasd4313",
+			"hostId":    "github.com/alibabacloud/tea",
+		},
 	})
-	assert.NotNil(t, err)
-	assert.Equal(t, "SDKError: code message", err.Error())
+	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, "SDKError: {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"requestId\":\"dfadfa32cgfdcasd4313\"} message ", err.Error())
 }
 
 func TestSDKErrorCode404(t *testing.T) {
@@ -56,6 +61,6 @@ func TestSDKErrorCode404(t *testing.T) {
 		"code":    404,
 		"message": "message",
 	})
-	assert.NotNil(t, err)
-	assert.Equal(t, "SDKError: 404 message", err.Error())
+	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, "SDKError: 404 message ", err.Error())
 }
