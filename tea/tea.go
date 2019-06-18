@@ -1,6 +1,7 @@
 package tea
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CastError is used for cast type fails
@@ -39,7 +41,7 @@ func Convert(in map[string]interface{}, out interface{}) error {
 
 	for i := 0; i < v.Elem().NumField(); i++ {
 		fieldInfo := v.Elem().Type().Field(i)
-		name := firstDownCase(fieldInfo.Name)
+		name, _ := fieldInfo.Tag.Lookup("json")
 		if value, ok := in[name]; ok {
 			if reflect.ValueOf(value).Kind() == v.Elem().FieldByName(fieldInfo.Name).Kind() {
 				v.Elem().FieldByName(fieldInfo.Name).Set(reflect.ValueOf(value))
@@ -76,7 +78,7 @@ func NewRequest() (req *Request) {
 
 // Response is use d wrap http response
 type Response struct {
-	httpResponse  *http.Response
+	*http.Response
 	StatusCode    int
 	StatusMessage string
 }
@@ -84,7 +86,7 @@ type Response struct {
 // NewResponse is create response with http response
 func NewResponse(httpResponse *http.Response) (res *Response) {
 	res = &Response{
-		httpResponse: httpResponse,
+		Response: httpResponse,
 	}
 	res.StatusCode = httpResponse.StatusCode
 	res.StatusMessage = httpResponse.Status
@@ -93,9 +95,8 @@ func NewResponse(httpResponse *http.Response) (res *Response) {
 
 // ReadBody is used read response body
 func (response *Response) ReadBody() (body []byte, err error) {
-	res := response.httpResponse
-	defer res.Body.Close()
-	body, err = ioutil.ReadAll(res.Body)
+	defer response.Body.Close()
+	body, err = ioutil.ReadAll(response.Body)
 	return
 }
 
@@ -141,6 +142,7 @@ func DoRequest(request *Request) (response *Response, err error) {
 	if err != nil {
 		return
 	}
+
 	for key, value := range request.Headers {
 		httpRequest.Header[key] = []string{value}
 		fmt.Printf("> %s: %s\n", key, value)
@@ -168,10 +170,87 @@ func DoRequest(request *Request) (response *Response, err error) {
 type SDKError struct {
 	Code    string
 	Message string
+	Data    string
 }
 
 func (err *SDKError) Error() string {
-	return fmt.Sprintf("SDKError: %s %s", err.Code, err.Message)
+	return fmt.Sprintf("SDKError: %s %s %s", err.Code, err.Message, err.Data)
+}
+
+func AllowRetry(retry interface{}, retryTimes int) bool {
+	retryMap, ok := retry.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	retryable, ok := retryMap["retryable"].(bool)
+	if !ok || retryable {
+		return false
+	}
+
+	max_attempts, ok := retryMap["max-attempts"].(int)
+	if !ok || max_attempts < retryTimes {
+		return false
+	}
+	return true
+}
+
+func Merge(args ...interface{}) map[string]string {
+	finalArg := make(map[string]string)
+	for _, obj := range args {
+		switch obj.(type) {
+		case map[string]string:
+			arg := obj.(map[string]string)
+			for key, value := range arg {
+				if value != "" {
+					finalArg[key] = value
+				}
+			}
+		default:
+			byt, _ := json.Marshal(obj)
+			arg := make(map[string]string)
+			json.Unmarshal(byt, &arg)
+			for key, value := range arg {
+				if value != "" {
+					finalArg[key] = value
+				}
+			}
+		}
+	}
+
+	return finalArg
+}
+
+func Retryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if realErr, ok := err.(*SDKError); ok {
+		code, _ := strconv.Atoi(realErr.Code)
+		return code >= http.StatusInternalServerError
+	}
+	return true
+}
+
+func GetBackoffTime(backoff interface{}, retryTimes int) int {
+	backoffMap, ok := backoff.(map[string]interface{})
+	if !ok {
+		return 0
+	}
+	policy, ok := backoffMap["policy"].(string)
+	if !ok || policy == "no" {
+		return 0
+	}
+
+	period, ok := backoffMap["period"].(int)
+	if !ok || period == 0 {
+		return 0
+	}
+	return period
+}
+
+func Sleep(backoffTime int) {
+	sleeptime := time.Duration(backoffTime) * time.Second
+	time.Sleep(sleeptime)
 }
 
 // NewSDKError is used for shortly create SDKError object
@@ -185,6 +264,10 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 
 	if obj["message"] != nil {
 		err.Message = obj["message"].(string)
+	}
+	if data := obj["data"]; data != nil {
+		byt, _ := json.Marshal(data)
+		err.Code = string(byt)
 	}
 	return err
 }
