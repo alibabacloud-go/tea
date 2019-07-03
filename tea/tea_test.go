@@ -6,14 +6,16 @@ import (
 	"github.com/alibabacloud-go/tea/utils"
 )
 
+type test struct {
+	Key string `json:"key"`
+}
+
 func TestConvert(t *testing.T) {
 	in := map[string]interface{}{
 		"key": "value",
 	}
-	out := &struct {
-		Key string `json:"key"`
-	}{}
-	err := Convert(in, out)
+	out := new(test)
+	err := Convert(in, &out)
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "value", out.Key)
 }
@@ -22,9 +24,7 @@ func TestConvertNonPtr(t *testing.T) {
 	in := map[string]interface{}{
 		"key": "value",
 	}
-	out := struct {
-		Key string `json:"key"`
-	}{}
+	out := new(test)
 	err := Convert(in, out)
 	utils.AssertNotNil(t, err)
 	utils.AssertEqual(t, "The out parameter must be pointer", err.Error())
@@ -32,14 +32,12 @@ func TestConvertNonPtr(t *testing.T) {
 
 func TestConvertType(t *testing.T) {
 	in := map[string]interface{}{
-		"key": "value",
+		"key": 123,
 	}
-	out := &struct {
-		Key int `json:"key"`
-	}{}
-	err := Convert(in, out)
+	out := new(test)
+	err := Convert(in, &out)
 	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "Convert type fails for field: key, expect type: int, current type: string", err.Error())
+	utils.AssertEqual(t, "Convert type fails for field: key, expect type: string, current type: int", err.Error())
 }
 
 func TestSDKError(t *testing.T) {
