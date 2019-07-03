@@ -34,14 +34,17 @@ func firstDownCase(name string) string {
 
 // Convert is use convert map[string]interface object to struct
 func Convert(in map[string]interface{}, out interface{}) error {
-	v := reflect.ValueOf(out)
+	v := reflect.ValueOf(out).Elem()
 	if v.Kind() != reflect.Ptr {
 		return NewCastError("The out parameter must be pointer")
 	}
-
+	if v.IsNil() {
+		v.Set(reflect.New(v.Type().Elem()))
+	}
 	for i := 0; i < v.Elem().NumField(); i++ {
 		fieldInfo := v.Elem().Type().Field(i)
 		name, _ := fieldInfo.Tag.Lookup("json")
+		name = upLetter(name)
 		if value, ok := in[name]; ok {
 			if reflect.ValueOf(value).Kind() == v.Elem().FieldByName(fieldInfo.Name).Kind() {
 				v.Elem().FieldByName(fieldInfo.Name).Set(reflect.ValueOf(value))
@@ -55,6 +58,17 @@ func Convert(in map[string]interface{}, out interface{}) error {
 
 	out = v.Interface()
 	return nil
+}
+
+func upLetter(name string) string {
+	strs := strings.Split(name, "-")
+	for key, value := range strs {
+		if len(strs) >= 2 {
+			strs[key] = strings.ToUpper(string(value[0])) + value[1:]
+		}
+	}
+	name = strings.Join(strs, "-")
+	return name
 }
 
 // Request is used wrap http request
