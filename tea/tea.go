@@ -10,7 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/alibabacloud-go/debug/debug"
 )
+
+var debugLog = debug.Init("tea")
 
 // CastError is used for cast type fails
 type CastError struct {
@@ -150,8 +154,8 @@ func DoRequest(request *Request) (response *Response, err error) {
 		requestURL = fmt.Sprintf("%s?%s", requestURL, querystring)
 	}
 
-	fmt.Println(requestMethod)
-	fmt.Println(requestURL)
+	debugLog(requestMethod)
+	debugLog(requestURL)
 	httpRequest, err := http.NewRequest(requestMethod, requestURL, strings.NewReader(request.Body))
 	if err != nil {
 		return
@@ -159,16 +163,16 @@ func DoRequest(request *Request) (response *Response, err error) {
 
 	for key, value := range request.Headers {
 		httpRequest.Header[key] = []string{value}
-		fmt.Printf("> %s: %s\n", key, value)
+		debugLog("> %s: %s", key, value)
 	}
 	httpRequest.Host = domain
 
 	httpClient := &http.Client{}
 	res, err := httpClient.Do(httpRequest)
 	if res != nil {
-		fmt.Printf("< HTTP/1.1 %s\n", res.Status)
+		debugLog("< HTTP/1.1 %s", res.Status)
 		for key, value := range res.Header {
-			fmt.Printf("< %s: %s\n", key, strings.Join(value, ""))
+			debugLog("< %s: %s", key, strings.Join(value, ""))
 		}
 	}
 
