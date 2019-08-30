@@ -1,17 +1,23 @@
 package tea
 
 import (
+	"context"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
-	"reflect"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/alibabacloud-go/debug/debug"
+	"golang.org/x/net/proxy"
 )
 
 var debugLog = debug.Init("tea")
@@ -19,60 +25,6 @@ var debugLog = debug.Init("tea")
 // CastError is used for cast type fails
 type CastError struct {
 	Message string
-}
-
-// NewCastError is used for cast type fails
-func NewCastError(message string) (err error) {
-	return &CastError{
-		Message: message,
-	}
-}
-
-func (err *CastError) Error() string {
-	return err.Message
-}
-
-func firstDownCase(name string) string {
-	return strings.ToLower(string(name[0])) + name[1:]
-}
-
-// Convert is use convert map[string]interface object to struct
-func Convert(in map[string]interface{}, out interface{}) error {
-	v := reflect.ValueOf(out).Elem()
-	if v.Kind() != reflect.Ptr {
-		return NewCastError("The out parameter must be pointer")
-	}
-	if v.IsNil() {
-		v.Set(reflect.New(v.Type().Elem()))
-	}
-	for i := 0; i < v.Elem().NumField(); i++ {
-		fieldInfo := v.Elem().Type().Field(i)
-		name, _ := fieldInfo.Tag.Lookup("json")
-		name = upLetter(name)
-		if value, ok := in[name]; ok {
-			if reflect.ValueOf(value).Kind() == v.Elem().FieldByName(fieldInfo.Name).Kind() {
-				v.Elem().FieldByName(fieldInfo.Name).Set(reflect.ValueOf(value))
-			} else {
-				currentType := reflect.ValueOf(value).Type()
-				expectType := v.Elem().FieldByName(fieldInfo.Name).Type()
-				return NewCastError(fmt.Sprintf("Convert type fails for field: %s, expect type: %s, current type: %s", name, expectType, currentType))
-			}
-		}
-	}
-
-	out = v.Interface()
-	return nil
-}
-
-func upLetter(name string) string {
-	strs := strings.Split(name, "-")
-	for key, value := range strs {
-		if len(strs) >= 2 {
-			strs[key] = strings.ToUpper(string(value[0])) + value[1:]
-		}
-	}
-	name = strings.Join(strs, "-")
-	return name
 }
 
 // Request is used wrap http request
@@ -83,7 +35,43 @@ type Request struct {
 	Pathname string
 	Headers  map[string]string
 	Query    map[string]string
-	Body     string
+	Body     io.Reader
+}
+
+// Response is use d wrap http response
+type Response struct {
+	*http.Response
+	StatusCode    int
+	StatusMessage string
+	Headers       map[string]string
+}
+
+// SDKError struct is used save error code and message
+type SDKError struct {
+	Code    string
+	Message string
+	Data    string
+}
+
+// RuntimeObject is used for converting http configuration
+type RuntimeObject struct {
+	IgnoreSSL      bool   `json:"ignoreSSL" xml:"ignoreSSL"`
+	ReadTimeout    int    `json:"readTimeout" xml:"readTimeout"`
+	ConnectTimeout int    `json:"connectTimeout" xml:"connectTimeout"`
+	LocalAddr      string `json:"localAddr" xml:"localAddr"`
+	HttpProxy      string `json:"httpProxy" xml:"httpProxy"`
+	HttpsProxy     string `json:"httpsProxy" xml:"httpsProxy"`
+	NoProxy        string `json:"noProxy" xml:"noProxy"`
+	MaxIdleConns   int    `json:"maxIdleConns" xml:"maxIdleConns"`
+	Socks5Proxy    string `json:"socks5Proxy" xml:"socks5Proxy"`
+	Socks5NetWork  string `json:"socks5NetWork" xml:"socks5NetWork"`
+}
+
+// NewCastError is used for cast type fails
+func NewCastError(message string) (err error) {
+	return &CastError{
+		Message: message,
+	}
 }
 
 // NewRequest is used shortly create Request
@@ -94,21 +82,57 @@ func NewRequest() (req *Request) {
 	}
 }
 
-// Response is use d wrap http response
-type Response struct {
-	*http.Response
-	StatusCode    int
-	StatusMessage string
-}
-
 // NewResponse is create response with http response
 func NewResponse(httpResponse *http.Response) (res *Response) {
 	res = &Response{
 		Response: httpResponse,
 	}
+	res.Headers = make(map[string]string)
 	res.StatusCode = httpResponse.StatusCode
 	res.StatusMessage = httpResponse.Status
 	return
+}
+
+// NewSDKError is used for shortly create SDKError object
+func NewSDKError(obj map[string]interface{}) *SDKError {
+	err := &SDKError{}
+	if val, ok := obj["code"].(int); ok {
+		err.Code = strconv.Itoa(val)
+	} else if val, ok := obj["code"].(string); ok {
+		err.Code = val
+	}
+
+	if obj["message"] != nil {
+		err.Message = obj["message"].(string)
+	}
+	if data := obj["data"]; data != nil {
+		byt, _ := json.Marshal(data)
+		err.Code = string(byt)
+	}
+	return err
+}
+
+// NewRuntimeObject is used for shortly create runtime object
+func NewRuntimeObject(obj map[string]interface{}) *RuntimeObject {
+	runtimeObject := new(RuntimeObject)
+	byt, _ := json.Marshal(obj)
+	err := json.Unmarshal(byt, runtimeObject)
+	if err != nil {
+		return nil
+	}
+	return runtimeObject
+}
+
+// Return message of CastError
+func (err *CastError) Error() string {
+	return err.Message
+}
+
+// Convert is use convert map[string]interface object to struct
+func Convert(in interface{}, out interface{}) error {
+	byt, _ := json.Marshal(in)
+	err := json.Unmarshal(byt, out)
+	return err
 }
 
 // ReadBody is used read response body
@@ -119,7 +143,8 @@ func (response *Response) ReadBody() (body []byte, err error) {
 }
 
 // DoRequest is used send request to server
-func DoRequest(request *Request) (response *Response, err error) {
+func DoRequest(request *Request, requestRuntime map[string]interface{}) (response *Response, err error) {
+	runtimeObject := NewRuntimeObject(requestRuntime)
 	requestMethod := request.Method
 	if requestMethod == "" {
 		requestMethod = "GET"
@@ -151,23 +176,83 @@ func DoRequest(request *Request) (response *Response, err error) {
 	}
 	querystring := q.Encode()
 	if len(querystring) > 0 {
-		requestURL = fmt.Sprintf("%s?%s", requestURL, querystring)
+		if strings.Contains(requestURL, "?") {
+			requestURL = fmt.Sprintf("%s&%s", requestURL, querystring)
+		} else {
+			requestURL = fmt.Sprintf("%s?%s", requestURL, querystring)
+		}
 	}
-
 	debugLog(requestMethod)
 	debugLog(requestURL)
-	httpRequest, err := http.NewRequest(requestMethod, requestURL, strings.NewReader(request.Body))
+
+	httpRequest, err := http.NewRequest(requestMethod, requestURL, request.Body)
 	if err != nil {
 		return
-	}
-
-	for key, value := range request.Headers {
-		httpRequest.Header[key] = []string{value}
-		debugLog("> %s: %s", key, value)
 	}
 	httpRequest.Host = domain
 
 	httpClient := &http.Client{}
+	httpClient.Timeout = time.Duration(runtimeObject.ConnectTimeout) * time.Second
+	httpProxy, err := getHttpProxy(protocol, domain, runtimeObject)
+	if err != nil {
+		return
+	}
+	if httpProxy != nil && httpProxy.User != nil {
+		password, _ := httpProxy.User.Password()
+		auth := httpProxy.User.Username() + ":" + password
+		basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+		request.Headers["Proxy-Authorization"] = basic
+	}
+	for key, value := range request.Headers {
+		if value == "" {
+			continue
+		}
+		httpRequest.Header[key] = []string{value}
+		debugLog("> %s: %s", key, value)
+	}
+	if runtimeObject.Socks5Proxy != "" {
+		socks5Proxy, err := getSocks5Proxy(runtimeObject)
+		if err != nil {
+			return nil, err
+		}
+		if socks5Proxy != nil {
+			var auth *proxy.Auth
+			if socks5Proxy.User != nil {
+				password, _ := socks5Proxy.User.Password()
+				auth = &proxy.Auth{
+					User:     socks5Proxy.User.Username(),
+					Password: password,
+				}
+			}
+			dialer, err := proxy.SOCKS5(strings.ToLower(runtimeObject.Socks5NetWork), socks5Proxy.String(), auth,
+				&net.Dialer{
+					Timeout:   time.Duration(runtimeObject.ConnectTimeout) * time.Second,
+					DualStack: true,
+					LocalAddr: getLocalAddr(runtimeObject.LocalAddr, port),
+				})
+			if err != nil {
+				return nil, err
+			}
+			httpClient.Transport = &http.Transport{
+				MaxIdleConns: runtimeObject.MaxIdleConns,
+				Dial:         dialer.Dial,
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: runtimeObject.IgnoreSSL,
+				},
+				Proxy: http.ProxyURL(httpProxy),
+			}
+		} else {
+			httpClient.Transport = &http.Transport{
+				MaxIdleConns: runtimeObject.MaxIdleConns,
+				DialContext:  SetDialContext(runtimeObject, port),
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: runtimeObject.IgnoreSSL,
+				},
+				Proxy: http.ProxyURL(httpProxy),
+			}
+		}
+	}
+
 	res, err := httpClient.Do(httpRequest)
 	if res != nil {
 		debugLog("< HTTP/1.1 %s", res.Status)
@@ -181,27 +266,119 @@ func DoRequest(request *Request) (response *Response, err error) {
 	}
 
 	response = NewResponse(res)
+	for key, value := range res.Header {
+		if len(value) != 0 {
+			response.Headers[key] = value[0]
+		}
+	}
 	return
 }
 
-// SDKError struct is used save error code and message
-type SDKError struct {
-	Code    string
-	Message string
-	Data    string
+func getNoProxy(protocol string, runtime *RuntimeObject) []string {
+	var urls []string
+	if runtime.NoProxy != "" {
+		urls = strings.Split(runtime.NoProxy, ",")
+	} else if rawurl := os.Getenv("NO_PROXY"); rawurl != "" {
+		urls = strings.Split(rawurl, ",")
+	} else if rawurl := os.Getenv("no_proxy"); rawurl != "" {
+		urls = strings.Split(rawurl, ",")
+	}
+
+	return urls
+}
+
+func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL, err error) {
+	urls := getNoProxy(protocol, runtime)
+	for _, url := range urls {
+		if url == host {
+			return nil, nil
+		}
+	}
+	if protocol == "https" {
+		if runtime.HttpsProxy != "" {
+			proxy, err = url.Parse(runtime.HttpsProxy)
+		} else if rawurl := os.Getenv("HTTPS_PROXY"); rawurl != "" {
+			proxy, err = url.Parse(rawurl)
+		} else if rawurl := os.Getenv("https_proxy"); rawurl != "" {
+			proxy, err = url.Parse(rawurl)
+		}
+	} else {
+		if runtime.HttpProxy != "" {
+			proxy, err = url.Parse(runtime.HttpsProxy)
+		} else if rawurl := os.Getenv("HTTP_PROXY"); rawurl != "" {
+			proxy, err = url.Parse(rawurl)
+		} else if rawurl := os.Getenv("http_proxy"); rawurl != "" {
+			proxy, err = url.Parse(rawurl)
+		}
+	}
+
+	return proxy, err
+}
+
+func getSocks5Proxy(runtime *RuntimeObject) (proxy *url.URL, err error) {
+	if runtime.Socks5Proxy != "" {
+		proxy, err = url.Parse(runtime.Socks5Proxy)
+	}
+	return proxy, err
+}
+
+func getLocalAddr(localAddr string, port int) (addr *net.TCPAddr) {
+	if localAddr != "" {
+		addr = &net.TCPAddr{
+			Port: port,
+			IP:   []byte(localAddr),
+		}
+	}
+	return addr
+}
+
+func SetDialContext(runtime *RuntimeObject, port int) func(cxt context.Context, net, addr string) (c net.Conn, err error) {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		if runtime.LocalAddr != "" {
+			netAddr := &net.TCPAddr{
+				Port: port,
+				IP:   []byte(runtime.LocalAddr),
+			}
+			return (&net.Dialer{
+				Timeout:   time.Duration(runtime.ConnectTimeout) * time.Second,
+				DualStack: true,
+				LocalAddr: netAddr,
+			}).DialContext(ctx, network, address)
+		}
+		return (&net.Dialer{
+			Timeout:   time.Duration(runtime.ConnectTimeout) * time.Second,
+			DualStack: true,
+		}).DialContext(ctx, network, address)
+	}
 }
 
 func (err *SDKError) Error() string {
 	return fmt.Sprintf("SDKError: %s %s %s", err.Code, err.Message, err.Data)
 }
 
+func ToObject(obj interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	byt, err := json.Marshal(obj)
+	if err != nil {
+		return nil
+	}
+	err = json.Unmarshal(byt, &result)
+	if err != nil {
+		return nil
+	}
+	return result
+}
+
 func AllowRetry(retry interface{}, retryTimes int) bool {
+	if retryTimes == 0 {
+		return true
+	}
 	retryMap, ok := retry.(map[string]interface{})
 	if !ok {
 		return false
 	}
 	retryable, ok := retryMap["retryable"].(bool)
-	if !ok || retryable {
+	if !ok || !retryable {
 		return false
 	}
 
@@ -226,7 +403,46 @@ func Merge(args ...interface{}) map[string]string {
 		default:
 			byt, _ := json.Marshal(obj)
 			arg := make(map[string]string)
-			json.Unmarshal(byt, &arg)
+			err := json.Unmarshal(byt, &arg)
+			if err != nil {
+				return finalArg
+			}
+			for key, value := range arg {
+				if value != "" {
+					finalArg[key] = value
+				}
+			}
+		}
+	}
+
+	return finalArg
+}
+
+func ToMap(args ...interface{}) map[string]interface{} {
+	finalArg := make(map[string]interface{})
+	for _, obj := range args {
+		switch obj.(type) {
+		case map[string]string:
+			arg := obj.(map[string]string)
+			for key, value := range arg {
+				if value != "" {
+					finalArg[key] = value
+				}
+			}
+		case map[string]interface{}:
+			arg := obj.(map[string]interface{})
+			for key, value := range arg {
+				if value != "" {
+					finalArg[key] = value
+				}
+			}
+		default:
+			byt, _ := json.Marshal(obj)
+			arg := make(map[string]interface{})
+			err := json.Unmarshal(byt, &arg)
+			if err != nil {
+				return finalArg
+			}
 			for key, value := range arg {
 				if value != "" {
 					finalArg[key] = value
@@ -269,23 +485,4 @@ func GetBackoffTime(backoff interface{}, retryTimes int) int {
 func Sleep(backoffTime int) {
 	sleeptime := time.Duration(backoffTime) * time.Second
 	time.Sleep(sleeptime)
-}
-
-// NewSDKError is used for shortly create SDKError object
-func NewSDKError(obj map[string]interface{}) *SDKError {
-	err := &SDKError{}
-	if val, ok := obj["code"].(int); ok {
-		err.Code = strconv.Itoa(val)
-	} else if val, ok := obj["code"].(string); ok {
-		err.Code = val
-	}
-
-	if obj["message"] != nil {
-		err.Message = obj["message"].(string)
-	}
-	if data := obj["data"]; data != nil {
-		byt, _ := json.Marshal(data)
-		err.Code = string(byt)
-	}
-	return err
 }
