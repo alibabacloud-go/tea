@@ -20,16 +20,6 @@ func TestConvert(t *testing.T) {
 	utils.AssertEqual(t, "value", out.Key)
 }
 
-func TestConvertNonPtr(t *testing.T) {
-	in := map[string]interface{}{
-		"key": "value",
-	}
-	out := new(test)
-	err := Convert(in, out)
-	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "The out parameter must be pointer", err.Error())
-}
-
 func TestConvertType(t *testing.T) {
 	in := map[string]interface{}{
 		"key": 123,
@@ -37,7 +27,7 @@ func TestConvertType(t *testing.T) {
 	out := new(test)
 	err := Convert(in, &out)
 	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "Convert type fails for field: key, expect type: string, current type: int", err.Error())
+	utils.AssertEqual(t, "json: cannot unmarshal number into Go struct field test.key of type string", err.Error())
 }
 
 func TestSDKError(t *testing.T) {
