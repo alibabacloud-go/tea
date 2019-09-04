@@ -9,9 +9,23 @@
   pruneopts = "UT"
   revision = "9472017b5c6804c66e5d873fabd2a2a937b31e0b"
 
+[[projects]]
+  branch = "master"
+  digest = "1:3e0062766e6b0bcfe1ba1ed1d3f08a8e1e99cd5831426e2596dc9537d28f2adb"
+  name = "golang.org/x/net"
+  packages = [
+    "internal/socks",
+    "proxy",
+  ]
+  pruneopts = "UT"
+  revision = "ba9fcec4b297b415637633c5a6e8fa592e4a16c3"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  input-imports = ["github.com/alibabacloud-go/debug/debug"]
+  input-imports = [
+    "github.com/alibabacloud-go/debug/debug",
+    "golang.org/x/net/proxy",
+  ]
   solver-name = "gps-cdcl"
   solver-version = 1

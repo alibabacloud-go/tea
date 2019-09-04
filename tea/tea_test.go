@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/alibabacloud-go/tea/utils"
 )
 
@@ -158,11 +156,11 @@ func TestMerge(t *testing.T) {
 	}
 	invalidStr := "sdfdg"
 	result := Merge(in, valid, invalidStr)
-	assert.Equal(t, "test", result["tea"])
-	assert.Equal(t, "test", result["valid"])
+	utils.AssertEqual(t, "test", result["tea"])
+	utils.AssertEqual(t, "test", result["valid"])
 
 	result = Merge(nil)
-	assert.Equal(t, map[string]string{}, result)
+	utils.AssertEqual(t, map[string]string{}, result)
 }
 
 func TestToMap(t *testing.T) {
@@ -178,53 +176,53 @@ func TestToMap(t *testing.T) {
 
 	invalidStr := "sdfdg"
 	result := ToMap(in, validMap, valid, invalidStr)
-	assert.Equal(t, "test", result["tea"])
-	assert.Equal(t, "test", result["valid"])
+	utils.AssertEqual(t, "test", result["tea"])
+	utils.AssertEqual(t, "test", result["valid"])
 
 	result = ToMap(nil)
-	assert.Equal(t, map[string]interface{}{}, result)
+	utils.AssertEqual(t, map[string]interface{}{}, result)
 }
 
 func Test_Retryable(t *testing.T) {
 	ifRetry := Retryable(nil)
-	assert.False(t, ifRetry)
+	utils.AssertEqual(t, false, ifRetry)
 
 	err := errors.New("tea")
 	ifRetry = Retryable(err)
-	assert.True(t, ifRetry)
+	utils.AssertEqual(t, true, ifRetry)
 
 	errmsg := map[string]interface{}{
 		"code": "err",
 	}
 	err = NewSDKError(errmsg)
 	ifRetry = Retryable(err)
-	assert.True(t, ifRetry)
+	utils.AssertEqual(t, true, ifRetry)
 
 	errmsg["code"] = "400"
 	err = NewSDKError(errmsg)
 	ifRetry = Retryable(err)
-	assert.False(t, ifRetry)
+	utils.AssertEqual(t, false, ifRetry)
 }
 
 func Test_GetBackoffTime(t *testing.T) {
 	times := GetBackoffTime(nil)
-	assert.Equal(t, 0, times)
+	utils.AssertEqual(t, 0, times)
 
 	backoff := map[string]interface{}{
 		"policy": "no",
 	}
 	times = GetBackoffTime(backoff)
-	assert.Equal(t, 0, times)
+	utils.AssertEqual(t, 0, times)
 
 	backoff["policy"] = "yes"
 	backoff["period"] = 0
 	times = GetBackoffTime(backoff)
-	assert.Equal(t, 0, times)
+	utils.AssertEqual(t, 0, times)
 	Sleep(1)
 
 	backoff["period"] = 3
 	times = GetBackoffTime(backoff)
-	assert.Equal(t, 3, times)
+	utils.AssertEqual(t, 3, times)
 }
 
 func Test_DoRequest(t *testing.T) {
@@ -239,8 +237,8 @@ func Test_DoRequest(t *testing.T) {
 	request.Port = 80
 	request.Method = "TEA TEST"
 	resp, err := DoRequest(request, nil)
-	assert.Nil(t, resp)
-	assert.Equal(t, `net/http: invalid method "TEA TEST"`, err.Error())
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `net/http: invalid method "TEA TEST"`, err.Error())
 
 	request.Method = ""
 	request.Protocol = "https"
@@ -251,20 +249,20 @@ func Test_DoRequest(t *testing.T) {
 		"httpsProxy": "# #%gfdf",
 	}
 	resp, err = DoRequest(request, runtime)
-	assert.Nil(t, resp)
-	assert.Equal(t, `parse # #%gfdf: invalid URL escape "%gf"`, err.Error())
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `parse # #%gfdf: invalid URL escape "%gf"`, err.Error())
 
 	request.Pathname = "?log"
 	request.Headers["tea"] = ""
 	runtime["httpsProxy"] = "http://someuser:somepassword@ecs.aliyun.com"
 	resp, err = DoRequest(request, runtime)
-	assert.Nil(t, resp)
-	assert.Equal(t, `Internal error`, err.Error())
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `Internal error`, err.Error())
 
 	runtime["socks5Proxy"] = "# #%gfdf"
 	resp, err = DoRequest(request, runtime)
-	assert.Nil(t, resp)
-	assert.Equal(t, `parse # #%gfdf: invalid URL escape "%gf"`, err.Error())
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `parse # #%gfdf: invalid URL escape "%gf"`, err.Error())
 
 	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
 		return func(req *http.Request) (*http.Response, error) {
@@ -274,8 +272,8 @@ func Test_DoRequest(t *testing.T) {
 	runtime["socks5Proxy"] = "socks5://someuser:somepassword@ecs.aliyun.com"
 	runtime["localAddr"] = "127.0.0.1"
 	resp, err = DoRequest(request, runtime)
-	assert.Nil(t, err)
-	assert.Equal(t, "test", resp.Headers["tea"])
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "test", resp.Headers["tea"])
 }
 
 func Test_getHttpProxy(t *testing.T) {
@@ -297,51 +295,61 @@ func Test_getHttpProxy(t *testing.T) {
 		NoProxy: "www.aliyun.com",
 	}
 	proxy, err := getHttpProxy("http", "www.aliyun.com", runtime)
-	assert.Nil(t, proxy)
-	assert.Nil(t, err)
+	utils.AssertNil(t, proxy)
+	utils.AssertNil(t, err)
 
 	runtime.NoProxy = ""
 	os.Setenv("no_proxy", "tea")
 	os.Setenv("http_proxy", "tea.aliyun.com")
 	proxy, err = getHttpProxy("http", "www.aliyun.com", runtime)
-	assert.Equal(t, "tea.aliyun.com", proxy.Path)
-	assert.Nil(t, err)
+	utils.AssertEqual(t, "tea.aliyun.com", proxy.Path)
+	utils.AssertNil(t, err)
 
 	os.Setenv("NO_PROXY", "tea")
 	os.Setenv("HTTP_PROXY", "tea1.aliyun.com")
 	proxy, err = getHttpProxy("http", "www.aliyun.com", runtime)
-	assert.Equal(t, "tea1.aliyun.com", proxy.Path)
-	assert.Nil(t, err)
+	utils.AssertEqual(t, "tea1.aliyun.com", proxy.Path)
+	utils.AssertNil(t, err)
 
 	runtime.HttpProxy = "tea2.aliyun.com"
 	proxy, err = getHttpProxy("http", "www.aliyun.com", runtime)
-	assert.Equal(t, "tea2.aliyun.com", proxy.Path)
-	assert.Nil(t, err)
+	utils.AssertEqual(t, "tea2.aliyun.com", proxy.Path)
+	utils.AssertNil(t, err)
 
 	os.Setenv("no_proxy", "tea")
 	os.Setenv("https_proxy", "tea.aliyun.com")
 	proxy, err = getHttpProxy("https", "www.aliyun.com", runtime)
-	assert.Equal(t, "tea.aliyun.com", proxy.Path)
-	assert.Nil(t, err)
+	utils.AssertEqual(t, "tea.aliyun.com", proxy.Path)
+	utils.AssertNil(t, err)
 
 	os.Setenv("NO_PROXY", "tea")
 	os.Setenv("HTTPS_PROXY", "tea1.aliyun.com")
 	proxy, err = getHttpProxy("https", "www.aliyun.com", runtime)
-	assert.Equal(t, "tea1.aliyun.com", proxy.Path)
-	assert.Nil(t, err)
+	utils.AssertEqual(t, "tea1.aliyun.com", proxy.Path)
+	utils.AssertNil(t, err)
 }
 
 func Test_SetDialContext(t *testing.T) {
 	runtime := &RuntimeObject{}
 	dialcontext := SetDialContext(runtime, 80)
 	ctx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Second)
-	assert.NotNil(t, cancelFunc)
+	utils.AssertNotNil(t, cancelFunc)
 	c, err := dialcontext(ctx, "127.0.0.1", "127.0.0.2")
-	assert.Nil(t, c)
-	assert.Equal(t, "dial 127.0.0.1: unknown network 127.0.0.1", err.Error())
+	utils.AssertNil(t, c)
+	utils.AssertEqual(t, "dial 127.0.0.1: unknown network 127.0.0.1", err.Error())
 
 	runtime.LocalAddr = "127.0.0.1"
 	c, err = dialcontext(ctx, "127.0.0.1", "127.0.0.2")
-	assert.Nil(t, c)
-	assert.Equal(t, "dial 127.0.0.1: unknown network 127.0.0.1", err.Error())
+	utils.AssertNil(t, c)
+	utils.AssertEqual(t, "dial 127.0.0.1: unknown network 127.0.0.1", err.Error())
+}
+
+func Test_hookdo(t *testing.T) {
+	fn := func(req *http.Request) (*http.Response, error) {
+		return nil, errors.New("hookdo")
+	}
+	result := hookDo(fn)
+	resp, err := result(nil)
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, "hookdo", err.Error())
 }
