@@ -22,6 +22,10 @@ import (
 
 var debugLog = debug.Init("tea")
 
+var hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
+	return fn
+}
+
 // CastError is used for cast type fails
 type CastError struct {
 	Message string
@@ -192,16 +196,24 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 	httpRequest.Host = domain
 
 	httpClient := &http.Client{}
+	trans := new(http.Transport)
 	httpClient.Timeout = time.Duration(runtimeObject.ConnectTimeout) * time.Second
 	httpProxy, err := getHttpProxy(protocol, domain, runtimeObject)
 	if err != nil {
 		return
 	}
-	if httpProxy != nil && httpProxy.User != nil {
-		password, _ := httpProxy.User.Password()
-		auth := httpProxy.User.Username() + ":" + password
-		basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
-		request.Headers["Proxy-Authorization"] = basic
+	trans.MaxIdleConns = runtimeObject.MaxIdleConns
+	trans.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: runtimeObject.IgnoreSSL,
+	}
+	if httpProxy != nil {
+		trans.Proxy = http.ProxyURL(httpProxy)
+		if httpProxy.User != nil {
+			password, _ := httpProxy.User.Password()
+			auth := httpProxy.User.Username() + ":" + password
+			basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+			request.Headers["Proxy-Authorization"] = basic
+		}
 	}
 	for key, value := range request.Headers {
 		if value == "" {
@@ -233,40 +245,22 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 			if err != nil {
 				return nil, err
 			}
-			httpClient.Transport = &http.Transport{
-				MaxIdleConns: runtimeObject.MaxIdleConns,
-				Dial:         dialer.Dial,
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: runtimeObject.IgnoreSSL,
-				},
-				Proxy: http.ProxyURL(httpProxy),
-			}
-		} else {
-			httpClient.Transport = &http.Transport{
-				MaxIdleConns: runtimeObject.MaxIdleConns,
-				DialContext:  SetDialContext(runtimeObject, port),
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: runtimeObject.IgnoreSSL,
-				},
-				Proxy: http.ProxyURL(httpProxy),
-			}
+			trans.Dial = dialer.Dial
 		}
+	} else {
+		trans.DialContext = SetDialContext(runtimeObject, port)
 	}
+	httpClient.Transport = trans
 
-	res, err := httpClient.Do(httpRequest)
-	if res != nil {
-		debugLog("< HTTP/1.1 %s", res.Status)
-		for key, value := range res.Header {
-			debugLog("< %s: %s", key, strings.Join(value, ""))
-		}
-	}
-
+	res, err := hookDo(httpClient.Do)(httpRequest)
 	if err != nil {
 		return
 	}
 
 	response = NewResponse(res)
+	debugLog("< HTTP/1.1 %s", res.Status)
 	for key, value := range res.Header {
+		debugLog("< %s: %s", key, strings.Join(value, ""))
 		if len(value) != 0 {
 			response.Headers[key] = value[0]
 		}
@@ -304,7 +298,7 @@ func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL
 		}
 	} else {
 		if runtime.HttpProxy != "" {
-			proxy, err = url.Parse(runtime.HttpsProxy)
+			proxy, err = url.Parse(runtime.HttpProxy)
 		} else if rawurl := os.Getenv("HTTP_PROXY"); rawurl != "" {
 			proxy, err = url.Parse(rawurl)
 		} else if rawurl := os.Getenv("http_proxy"); rawurl != "" {
@@ -459,13 +453,16 @@ func Retryable(err error) bool {
 		return false
 	}
 	if realErr, ok := err.(*SDKError); ok {
-		code, _ := strconv.Atoi(realErr.Code)
+		code, err := strconv.Atoi(realErr.Code)
+		if err != nil {
+			return true
+		}
 		return code >= http.StatusInternalServerError
 	}
 	return true
 }
 
-func GetBackoffTime(backoff interface{}, retryTimes int) int {
+func GetBackoffTime(backoff interface{}) int {
 	backoffMap, ok := backoff.(map[string]interface{})
 	if !ok {
 		return 0

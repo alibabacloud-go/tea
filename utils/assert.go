@@ -55,16 +55,10 @@ func AssertNotNil(t *testing.T, object interface{}) {
 	}
 }
 
-func AssertContains(t *testing.T, contains string, msgAndArgs ...string) (isContains bool) {
-
+func AssertContains(t *testing.T, contains string, msgAndArgs ...string) {
 	for _, value := range msgAndArgs {
-		if ok := strings.Contains(contains, value); ok {
-			isContains = true
-		} else {
-			isContains = false
-			return
+		if ok := strings.Contains(contains, value); !ok {
+			t.Errorf("%s does not contain %s", contains, value)
 		}
 	}
-	return
-
 }
