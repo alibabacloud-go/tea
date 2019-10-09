@@ -19,6 +19,28 @@ type test struct {
 	Key string `json:"key"`
 }
 
+var runtimeObj = map[string]interface{}{
+	"ignoreSSL":      false,
+	"readTimeout":    0,
+	"connectTimeout": 0,
+	"localAddr":      "",
+	"httpProxy":      "",
+	"httpsProxy":     "",
+	"noProxy":        "",
+	"maxIdleConns":   0,
+	"socks5Proxy":    "",
+	"socks5NetWork":  "",
+	"listener":       &Progresstest{},
+	"tracker":        &utils.ReaderTracker{CompletedBytes: int64(10)},
+	"logger":         utils.NewLogger("info", "", &bytes.Buffer{}, "{time}"),
+}
+
+type Progresstest struct {
+}
+
+func (progress *Progresstest) ProgressChanged(event *utils.ProgressEvent) {
+}
+
 func mockResponse(statusCode int, content string, mockerr error) (res *http.Response, err error) {
 	status := strconv.Itoa(statusCode)
 	res = &http.Response{
@@ -76,16 +98,10 @@ func TestConvertType(t *testing.T) {
 }
 
 func TestRuntimeObject(t *testing.T) {
-	obj := map[string]interface{}{
-		"ignoreSSL": 10,
-	}
-	runtimeobject := NewRuntimeObject(obj)
-	utils.AssertNil(t, runtimeobject)
+	runtimeobject := NewRuntimeObject(nil)
+	utils.AssertEqual(t, runtimeobject.IgnoreSSL, false)
 
-	obj = map[string]interface{}{
-		"ignoreSSL": false,
-	}
-	runtimeobject = NewRuntimeObject(obj)
+	runtimeobject = NewRuntimeObject(runtimeObj)
 	utils.AssertEqual(t, false, runtimeobject.IgnoreSSL)
 }
 
@@ -205,24 +221,25 @@ func Test_Retryable(t *testing.T) {
 }
 
 func Test_GetBackoffTime(t *testing.T) {
-	times := GetBackoffTime(nil)
-	utils.AssertEqual(t, 0, times)
+	ms := GetBackoffTime(nil, 0)
+	utils.AssertEqual(t, 0, ms)
 
 	backoff := map[string]interface{}{
 		"policy": "no",
 	}
-	times = GetBackoffTime(backoff)
-	utils.AssertEqual(t, 0, times)
+	ms = GetBackoffTime(backoff, 0)
+	utils.AssertEqual(t, 0, ms)
 
 	backoff["policy"] = "yes"
 	backoff["period"] = 0
-	times = GetBackoffTime(backoff)
-	utils.AssertEqual(t, 0, times)
+	ms = GetBackoffTime(backoff, 1)
+	utils.AssertEqual(t, 0, ms)
+
 	Sleep(1)
 
 	backoff["period"] = 3
-	times = GetBackoffTime(backoff)
-	utils.AssertEqual(t, 3, times)
+	ms = GetBackoffTime(backoff, 1)
+	utils.AssertEqual(t, true, ms <= 3)
 }
 
 func Test_DoRequest(t *testing.T) {
@@ -245,22 +262,20 @@ func Test_DoRequest(t *testing.T) {
 	request.Query = map[string]string{
 		"tea": "test",
 	}
-	runtime := map[string]interface{}{
-		"httpsProxy": "# #%gfdf",
-	}
-	resp, err = DoRequest(request, runtime)
+	runtimeObj["httpsProxy"] = "# #%gfdf"
+	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `parse # #%gfdf: invalid URL escape "%gf"`, err.Error())
 
 	request.Pathname = "?log"
 	request.Headers["tea"] = ""
-	runtime["httpsProxy"] = "http://someuser:somepassword@ecs.aliyun.com"
-	resp, err = DoRequest(request, runtime)
+	runtimeObj["httpsProxy"] = "http://someuser:somepassword@ecs.aliyun.com"
+	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `Internal error`, err.Error())
 
-	runtime["socks5Proxy"] = "# #%gfdf"
-	resp, err = DoRequest(request, runtime)
+	runtimeObj["socks5Proxy"] = "# #%gfdf"
+	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `parse # #%gfdf: invalid URL escape "%gf"`, err.Error())
 
@@ -269,9 +284,9 @@ func Test_DoRequest(t *testing.T) {
 			return mockResponse(200, ``, nil)
 		}
 	}
-	runtime["socks5Proxy"] = "socks5://someuser:somepassword@ecs.aliyun.com"
-	runtime["localAddr"] = "127.0.0.1"
-	resp, err = DoRequest(request, runtime)
+	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@ecs.aliyun.com"
+	runtimeObj["localAddr"] = "127.0.0.1"
+	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", resp.Headers["tea"])
 }
@@ -331,7 +346,7 @@ func Test_getHttpProxy(t *testing.T) {
 
 func Test_SetDialContext(t *testing.T) {
 	runtime := &RuntimeObject{}
-	dialcontext := SetDialContext(runtime, 80)
+	dialcontext := setDialContext(runtime, 80)
 	ctx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Second)
 	utils.AssertNotNil(t, cancelFunc)
 	c, err := dialcontext(ctx, "127.0.0.1", "127.0.0.2")
@@ -352,4 +367,55 @@ func Test_hookdo(t *testing.T) {
 	resp, err := result(nil)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, "hookdo", err.Error())
+}
+
+func Test_GetValue(t *testing.T) {
+	num := GetIntValue(nil)
+	utils.AssertEqual(t, 0, num)
+
+	num = num + 2
+	num = GetIntValue(&num)
+	utils.AssertEqual(t, 2, num)
+
+	num64 := GetInt64Value(nil)
+	utils.AssertEqual(t, int64(0), num64)
+
+	num64 = num64 + 2
+	num64 = GetInt64Value(&num64)
+	utils.AssertEqual(t, int64(2), num64)
+
+	float32Value := GetFloat32Value(nil)
+	utils.AssertEqual(t, float32(0), float32Value)
+
+	float32Value = float32Value + 2
+	float32Value = GetFloat32Value(&float32Value)
+	utils.AssertEqual(t, float32(2), float32Value)
+
+	float64Value := GetFloat64Value(nil)
+	utils.AssertEqual(t, float64(0), float64Value)
+
+	float64Value = float64Value + 2
+	float64Value = GetFloat64Value(&float64Value)
+	utils.AssertEqual(t, float64(2), float64Value)
+
+	boolValue := GetBoolValue(nil)
+	utils.AssertEqual(t, false, boolValue)
+
+	boolValue = true
+	boolValue = GetBoolValue(&boolValue)
+	utils.AssertEqual(t, true, boolValue)
+
+	uint64Value := GetUint64Value(nil)
+	utils.AssertEqual(t, uint64(0), uint64Value)
+
+	uint64Value = uint64Value + 2
+	uint64Value = GetUint64Value(&uint64Value)
+	utils.AssertEqual(t, uint64(2), uint64Value)
+
+	str := GetStringValue(nil)
+	utils.AssertEqual(t, "", str)
+
+	str = str + "ok"
+	str = GetStringValue(&str)
+	utils.AssertEqual(t, "ok", str)
 }
