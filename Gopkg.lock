@@ -11,14 +11,14 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:3e0062766e6b0bcfe1ba1ed1d3f08a8e1e99cd5831426e2596dc9537d28f2adb"
+  digest = "1:3587bbb18e3d5299dc0020733e2839138afb0a29456ffd4073a3962bb9966556"
   name = "golang.org/x/net"
   packages = [
     "internal/socks",
     "proxy",
   ]
   pruneopts = "UT"
-  revision = "ba9fcec4b297b415637633c5a6e8fa592e4a16c3"
+  revision = "72f939374954d0a1b2a1e27dcda950e2724dd5c1"
 
 [solve-meta]
   analyzer-name = "dep"
