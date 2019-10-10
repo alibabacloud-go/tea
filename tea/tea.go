@@ -312,7 +312,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 	for key, value := range res.Header {
 		debugLog("< %s: %s", key, strings.Join(value, ""))
 		if len(value) != 0 {
-			response.Headers[key] = value[0]
+			response.Headers[strings.ToLower(key)] = value[0]
 		}
 	}
 	return
