@@ -443,7 +443,7 @@ func AllowRetry(retry interface{}, retryTimes int) bool {
 		return false
 	}
 
-	max_attempts, ok := retryMap["max-attempts"].(int)
+	max_attempts, ok := retryMap["maxAttempts"].(int)
 	if !ok || max_attempts < retryTimes {
 		return false
 	}

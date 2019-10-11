@@ -148,8 +148,8 @@ func TestAllowRetry(t *testing.T) {
 	utils.AssertEqual(t, false, allow)
 
 	input := map[string]interface{}{
-		"retryable":    false,
-		"max-attempts": 2,
+		"retryable":   false,
+		"maxAttempts": 2,
 	}
 	allow = AllowRetry(input, 1)
 	utils.AssertEqual(t, false, allow)
