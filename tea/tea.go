@@ -348,6 +348,19 @@ func getNoProxy(protocol string, runtime *RuntimeObject) []string {
 	return urls
 }
 
+func ToReader(obj interface{}) io.Reader {
+	switch obj.(type) {
+	case string:
+		return strings.NewReader(obj.(string))
+	case []byte:
+		return strings.NewReader(string(obj.([]byte)))
+	case io.Reader:
+		return obj.(io.Reader)
+	default:
+		panic("Invalid Body. Please set a valid Body.")
+	}
+}
+
 func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL, err error) {
 	urls := getNoProxy(protocol, runtime)
 	for _, url := range urls {

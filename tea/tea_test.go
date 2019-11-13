@@ -419,3 +419,33 @@ func Test_GetValue(t *testing.T) {
 	str = GetStringValue(&str)
 	utils.AssertEqual(t, "ok", str)
 }
+
+func Test_ToReader(t *testing.T) {
+	str := "abc"
+	reader := ToReader(str)
+	byt, err := ioutil.ReadAll(reader)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "abc", string(byt))
+
+	read := strings.NewReader("bcd")
+	reader = ToReader(read)
+	byt, err = ioutil.ReadAll(reader)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "bcd", string(byt))
+
+	byts := []byte("cdf")
+	reader = ToReader(byts)
+	byt, err = ioutil.ReadAll(reader)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "cdf", string(byt))
+
+	num := 10
+	defer func(){
+		err := recover()
+		utils.AssertEqual(t, "Invalid Body. Please set a valid Body.", err.(string))
+	}()
+	reader = ToReader(num)
+	byt, err = ioutil.ReadAll(reader)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "", string(byt))
+}
