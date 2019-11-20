@@ -1,13 +1,13 @@
 package tea
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"math/rand"
 	"net"
@@ -20,6 +20,7 @@ import (
 
 	"github.com/alibabacloud-go/debug/debug"
 	"github.com/alibabacloud-go/tea/utils"
+
 	"golang.org/x/net/proxy"
 )
 
@@ -167,8 +168,19 @@ func Convert(in interface{}, out interface{}) error {
 // ReadBody is used read response body
 func (response *Response) ReadBody() (body []byte, err error) {
 	defer response.Body.Close()
-	body, err = ioutil.ReadAll(response.Body)
-	return
+	var buffer [512]byte
+	result := bytes.NewBuffer(nil)
+
+	for {
+		n, err := response.Body.Read(buffer[0:])
+		result.Write(buffer[0:n])
+		if err != nil && err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	return result.Bytes(), nil
 }
 
 // DoRequest is used send request to server
