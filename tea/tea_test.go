@@ -440,7 +440,7 @@ func Test_ToReader(t *testing.T) {
 	utils.AssertEqual(t, "cdf", string(byt))
 
 	num := 10
-	defer func(){
+	defer func() {
 		err := recover()
 		utils.AssertEqual(t, "Invalid Body. Please set a valid Body.", err.(string))
 	}()
@@ -448,4 +448,12 @@ func Test_ToReader(t *testing.T) {
 	byt, err = ioutil.ReadAll(reader)
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "", string(byt))
+}
+
+func Test_ToString(t *testing.T) {
+	str := ToString(10)
+	utils.AssertEqual(t, "10", str)
+
+	str = ToString("10")
+	utils.AssertEqual(t, "10", str)
 }

@@ -361,6 +361,10 @@ func ToReader(obj interface{}) io.Reader {
 	}
 }
 
+func ToString(val interface{}) string {
+	return fmt.Sprintf("%v", val)
+}
+
 func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL, err error) {
 	urls := getNoProxy(protocol, runtime)
 	for _, url := range urls {
