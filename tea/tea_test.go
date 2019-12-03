@@ -116,7 +116,7 @@ func TestSDKError(t *testing.T) {
 		},
 	})
 	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "SDKError: {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"requestId\":\"dfadfa32cgfdcasd4313\"} message ", err.Error())
+	utils.AssertEqual(t, "SDKError: code message {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"requestId\":\"dfadfa32cgfdcasd4313\"}", err.Error())
 }
 
 func TestSDKErrorCode404(t *testing.T) {

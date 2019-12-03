@@ -148,7 +148,7 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 	}
 	if data := obj["data"]; data != nil {
 		byt, _ := json.Marshal(data)
-		err.Code = string(byt)
+		err.Data = string(byt)
 	}
 	return err
 }
