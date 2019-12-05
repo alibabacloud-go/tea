@@ -34,7 +34,7 @@ var runtimeObj = map[string]interface{}{
 	"logger":        utils.NewLogger("info", "", &bytes.Buffer{}, "{time}"),
 }
 
-type validatorTest struct {
+type validateTest struct {
 	Num  *int       `json:"num" require:"true"`
 	Str  *string    `json:"str" pattern:"^[a-d]*$" maxLength:"4"`
 	Test *errLength `json:"test"`
@@ -468,52 +468,52 @@ func Test_ToString(t *testing.T) {
 	utils.AssertEqual(t, "10", str)
 }
 
-func Test_Validator(t *testing.T) {
+func Test_Validate(t *testing.T) {
 	num := 1
-	config := &validatorTest{
+	config := &validateTest{
 		Num: &num,
 	}
-	err := Validator(config)
+	err := Validate(config)
 	utils.AssertNil(t, err)
 }
 
-func Test_validator(t *testing.T) {
-	var test *validatorTest
-	err := validator(reflect.ValueOf(test))
+func Test_validate(t *testing.T) {
+	var test *validateTest
+	err := validate(reflect.ValueOf(test))
 	utils.AssertNil(t, err)
 
 	num := 1
 	str0, str1 := "acc", "abcddd"
-	val := &validatorTest{
+	val := &validateTest{
 		Num:  &num,
 		Str:  &str0,
 		List: []*string{&str0},
 	}
 
-	err = validator(reflect.ValueOf(val))
+	err = validate(reflect.ValueOf(val))
 	utils.AssertNil(t, err)
 
 	val.Str = &str1
-	err = validator(reflect.ValueOf(val))
+	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, "Length of abcddd is more than 4", err.Error())
 
 	val.Num = nil
-	err = validator(reflect.ValueOf(val))
+	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, "num should be setted", err.Error())
 
 	val.Num = &num
 	val.Str = &str0
 	val.List = []*string{&str1}
-	err = validator(reflect.ValueOf(val))
+	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, "Length of abcddd is more than 4", err.Error())
 
 	val.Str = nil
-	err = validator(reflect.ValueOf(val))
+	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, "Length of abcddd is more than 4", err.Error())
 
 	str2 := "test"
 	val.Str = &str2
-	err = validator(reflect.ValueOf(val))
+	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, "test is not matched ^[a-d]*$", err.Error())
 
 	val.Str = &str0
@@ -521,6 +521,6 @@ func Test_validator(t *testing.T) {
 	val.Test = &errLength{
 		Num: &num,
 	}
-	err = validator(reflect.ValueOf(val))
+	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, `strconv.Atoi: parsing "a": invalid syntax`, err.Error())
 }
