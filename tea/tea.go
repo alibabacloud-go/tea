@@ -38,7 +38,7 @@ var basicTypes = []string{
 }
 
 // Verify whether the parameters meet the requirements
-var validatorParams = []string{"require", "pattern", "maxLength"}
+var validateParams = []string{"require", "pattern", "maxLength"}
 
 // CastError is used for cast type fails
 type CastError struct {
@@ -592,14 +592,14 @@ func Sleep(backoffTime int) {
 	time.Sleep(sleeptime)
 }
 
-func Validator(params interface{}) error {
+func Validate(params interface{}) error {
 	requestValue := reflect.ValueOf(params).Elem()
-	err := validator(requestValue)
+	err := validate(requestValue)
 	return err
 }
 
 // Verify whether the parameters meet the requirements
-func validator(dataValue reflect.Value) error {
+func validate(dataValue reflect.Value) error {
 	if strings.HasPrefix(dataValue.Type().String(), "*") { // Determines whether the input is a structure object or a pointer object
 		if dataValue.IsNil() {
 			return nil
@@ -610,8 +610,8 @@ func validator(dataValue reflect.Value) error {
 	for i := 0; i < dataType.NumField(); i++ {
 		field := dataType.Field(i)
 		valueField := dataValue.Field(i)
-		for _, value := range validatorParams {
-			err := validatorParam(field, valueField, value)
+		for _, value := range validateParams {
+			err := validateParam(field, valueField, value)
 			if err != nil {
 				return err
 			}
@@ -620,7 +620,7 @@ func validator(dataValue reflect.Value) error {
 	return nil
 }
 
-func validatorParam(field reflect.StructField, valueField reflect.Value, tagName string) error {
+func validateParam(field reflect.StructField, valueField reflect.Value, tagName string) error {
 	tag, containsTag := field.Tag.Lookup(tagName) // Take out the checked regular expression
 	if containsTag && tagName == "require" {
 		err := checkRequire(field, valueField)
@@ -629,12 +629,12 @@ func validatorParam(field reflect.StructField, valueField reflect.Value, tagName
 		}
 	}
 	if strings.HasPrefix(field.Type.String(), "[]") { // Verify the parameters of the array type
-		err := validatorSlice(valueField, containsTag, tag, tagName)
+		err := validateSlice(valueField, containsTag, tag, tagName)
 		if err != nil {
 			return err
 		}
 	} else if valueField.Kind() == reflect.Ptr { // Determines whether it is a pointer object
-		err := validatorPtr(valueField, containsTag, tag, tagName)
+		err := validatePtr(valueField, containsTag, tag, tagName)
 		if err != nil {
 			return err
 		}
@@ -642,12 +642,12 @@ func validatorParam(field reflect.StructField, valueField reflect.Value, tagName
 	return nil
 }
 
-func validatorSlice(valueField reflect.Value, containsregexpTag bool, tag, tagName string) error {
+func validateSlice(valueField reflect.Value, containsregexpTag bool, tag, tagName string) error {
 	if valueField.IsValid() && !valueField.IsNil() { // Determines whether the parameter has a value
 		for m := 0; m < valueField.Len(); m++ {
 			elementValue := valueField.Index(m)
 			if elementValue.Type().Kind() == reflect.Ptr { // Determines whether the child elements of an array are of a basic type
-				err := validatorPtr(elementValue, containsregexpTag, tag, tagName)
+				err := validatePtr(elementValue, containsregexpTag, tag, tagName)
 				if err != nil {
 					return err
 				}
@@ -657,7 +657,7 @@ func validatorSlice(valueField reflect.Value, containsregexpTag bool, tag, tagNa
 	return nil
 }
 
-func validatorPtr(elementValue reflect.Value, containsregexpTag bool, tag, tagName string) error {
+func validatePtr(elementValue reflect.Value, containsregexpTag bool, tag, tagName string) error {
 	if elementValue.IsNil() {
 		return nil
 	}
@@ -679,7 +679,7 @@ func validatorPtr(elementValue reflect.Value, containsregexpTag bool, tag, tagNa
 			}
 		}
 	} else {
-		err := validator(elementValue)
+		err := validate(elementValue)
 		if err != nil {
 			return err
 		}
