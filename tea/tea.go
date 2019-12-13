@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alibabacloud-go/debug/debug"
@@ -51,6 +52,7 @@ type Request struct {
 	Port     int
 	Method   string
 	Pathname string
+	Domain   string
 	Headers  map[string]string
 	Query    map[string]string
 	Body     io.Reader
@@ -86,6 +88,20 @@ type RuntimeObject struct {
 	Listener       utils.ProgressListener `json:"listener" xml:"listener"`
 	Tracker        *utils.ReaderTracker   `json:"tracker" xml:"tracker"`
 	Logger         *utils.Logger          `json:"logger" xml:"logger"`
+}
+
+type teaClient struct {
+	sync.Mutex
+	httpClient *http.Client
+	ifInit     bool
+}
+
+var clientPool = &sync.Map{}
+
+func (r *RuntimeObject) getClientTag(domain string) string {
+	return strconv.FormatBool(r.IgnoreSSL) + strconv.Itoa(r.ReadTimeout) +
+		strconv.Itoa(r.ConnectTimeout) + r.LocalAddr + r.HttpProxy +
+		r.HttpsProxy + r.NoProxy + r.Socks5Proxy + r.Socks5NetWork + domain
 }
 
 // NewRuntimeObject is used for shortly create runtime object
@@ -193,6 +209,18 @@ func (response *Response) ReadBody() (body []byte, err error) {
 	return result.Bytes(), nil
 }
 
+func getTeaClient(tag string) *teaClient {
+	client, ok := clientPool.Load(tag)
+	if client == nil && !ok {
+		client = &teaClient{
+			httpClient: &http.Client{},
+			ifInit:     false,
+		}
+		clientPool.Store(tag, client)
+	}
+	return client.(*teaClient)
+}
+
 // DoRequest is used send request to server
 func DoRequest(request *Request, requestRuntime map[string]interface{}) (response *Response, err error) {
 	runtimeObject := NewRuntimeObject(requestRuntime)
@@ -203,29 +231,24 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 			runtimeObject.Logger.PrintLog(fieldMap, err)
 		}
 	}()
-	requestMethod := request.Method
-	if requestMethod == "" {
-		requestMethod = "GET"
+	if request.Method == "" {
+		request.Method = "GET"
 	}
 
-	protocol := "http"
-	if request.Protocol != "" {
-		protocol = strings.ToLower(request.Protocol)
+	if request.Protocol == "" {
+		request.Protocol = "http"
+	} else {
+		request.Protocol = strings.ToLower(request.Protocol)
 	}
 
-	port := 0
-	if protocol == "http" {
-		port = 80
-	} else if protocol == "https" {
-		port = 443
+	if request.Protocol == "http" {
+		request.Port = 80
+	} else if request.Protocol == "https" {
+		request.Port = 443
 	}
 
-	if request.Port != 0 {
-		port = request.Port
-	}
-
-	domain := request.Headers["host"]
-	requestURL := fmt.Sprintf("%s://%s:%d%s", protocol, domain, port, request.Pathname)
+	request.Domain = request.Headers["host"]
+	requestURL := fmt.Sprintf("%s://%s:%d%s", request.Protocol, request.Domain, request.Port, request.Pathname)
 	queryParams := request.Query
 	// sort QueryParams by key
 	q := url.Values{}
@@ -240,36 +263,27 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 			requestURL = fmt.Sprintf("%s?%s", requestURL, querystring)
 		}
 	}
-	debugLog(requestMethod)
+	debugLog(request.Method)
 	debugLog(requestURL)
 
-	httpRequest, err := http.NewRequest(requestMethod, requestURL, request.Body)
+	httpRequest, err := http.NewRequest(request.Method, requestURL, request.Body)
 	if err != nil {
 		return
 	}
-	httpRequest.Host = domain
+	httpRequest.Host = request.Domain
 
-	httpClient := &http.Client{}
-	trans := new(http.Transport)
-	httpClient.Timeout = time.Duration(runtimeObject.ConnectTimeout) * time.Second
-	httpProxy, err := getHttpProxy(protocol, domain, runtimeObject)
-	if err != nil {
-		return
-	}
-	trans.MaxIdleConns = runtimeObject.MaxIdleConns
-	trans.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: runtimeObject.IgnoreSSL,
-	}
-	if httpProxy != nil {
-		trans.Proxy = http.ProxyURL(httpProxy)
-		if httpProxy.User != nil {
-			password, _ := httpProxy.User.Password()
-			auth := httpProxy.User.Username() + ":" + password
-			basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
-			request.Headers["Proxy-Authorization"] = basic
+	client := getTeaClient(runtimeObject.getClientTag(request.Domain))
+	client.Lock()
+	if !client.ifInit {
+		trans, err := getHttpTransport(request, runtimeObject)
+		if err != nil {
+			return nil, err
 		}
+		client.httpClient.Timeout = time.Duration(runtimeObject.ConnectTimeout) * time.Second
+		client.httpClient.Transport = trans
+		client.ifInit = true
 	}
-	contentlength, _ := strconv.Atoi(request.Headers["content-length"])
+	client.Unlock()
 	for key, value := range request.Headers {
 		if value == "" || key == "content-length" {
 			continue
@@ -277,42 +291,14 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 		httpRequest.Header[key] = []string{value}
 		debugLog("> %s: %s", key, value)
 	}
-	if runtimeObject.Socks5Proxy != "" {
-		socks5Proxy, err := getSocks5Proxy(runtimeObject)
-		if err != nil {
-			return nil, err
-		}
-		if socks5Proxy != nil {
-			var auth *proxy.Auth
-			if socks5Proxy.User != nil {
-				password, _ := socks5Proxy.User.Password()
-				auth = &proxy.Auth{
-					User:     socks5Proxy.User.Username(),
-					Password: password,
-				}
-			}
-			dialer, err := proxy.SOCKS5(strings.ToLower(runtimeObject.Socks5NetWork), socks5Proxy.String(), auth,
-				&net.Dialer{
-					Timeout:   time.Duration(runtimeObject.ConnectTimeout) * time.Second,
-					DualStack: true,
-					LocalAddr: getLocalAddr(runtimeObject.LocalAddr, port),
-				})
-			if err != nil {
-				return nil, err
-			}
-			trans.Dial = dialer.Dial
-		}
-	} else {
-		trans.DialContext = setDialContext(runtimeObject, port)
-	}
-	httpClient.Transport = trans
+	contentlength, _ := strconv.Atoi(request.Headers["content-length"])
 	event := utils.NewProgressEvent(utils.TransferStartedEvent, 0, int64(contentlength), 0)
 	utils.PublishProgress(runtimeObject.Listener, event)
 
 	putMsgToMap(fieldMap, httpRequest)
 	startTime := time.Now()
 	fieldMap["{start_time}"] = startTime.Format("2006-01-02 15:04:05")
-	res, err := hookDo(httpClient.Do)(httpRequest)
+	res, err := hookDo(client.httpClient.Do)(httpRequest)
 	fieldMap["{cost}"] = time.Since(startTime).String()
 	completedBytes := int64(0)
 	if runtimeObject.Tracker != nil {
@@ -338,6 +324,55 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 		}
 	}
 	return
+}
+
+func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, error) {
+	trans := new(http.Transport)
+	httpProxy, err := getHttpProxy(req.Protocol, req.Domain, runtime)
+	if err != nil {
+		return nil, err
+	}
+	trans.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: runtime.IgnoreSSL,
+	}
+	if httpProxy != nil {
+		trans.Proxy = http.ProxyURL(httpProxy)
+		if httpProxy.User != nil {
+			password, _ := httpProxy.User.Password()
+			auth := httpProxy.User.Username() + ":" + password
+			basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+			req.Headers["Proxy-Authorization"] = basic
+		}
+	}
+	if runtime.Socks5Proxy != "" {
+		socks5Proxy, err := getSocks5Proxy(runtime)
+		if err != nil {
+			return nil, err
+		}
+		if socks5Proxy != nil {
+			var auth *proxy.Auth
+			if socks5Proxy.User != nil {
+				password, _ := socks5Proxy.User.Password()
+				auth = &proxy.Auth{
+					User:     socks5Proxy.User.Username(),
+					Password: password,
+				}
+			}
+			dialer, err := proxy.SOCKS5(strings.ToLower(runtime.Socks5NetWork), socks5Proxy.String(), auth,
+				&net.Dialer{
+					Timeout:   time.Duration(runtime.ConnectTimeout) * time.Second,
+					DualStack: true,
+					LocalAddr: getLocalAddr(runtime.LocalAddr, req.Port),
+				})
+			if err != nil {
+				return nil, err
+			}
+			trans.Dial = dialer.Dial
+		}
+	} else {
+		trans.DialContext = setDialContext(runtime, req.Port)
+	}
+	return trans, nil
 }
 
 func TransToString(object interface{}) string {

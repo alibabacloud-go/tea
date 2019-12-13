@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -299,6 +300,37 @@ func Test_DoRequest(t *testing.T) {
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", resp.Headers["tea"])
+}
+
+func Test_DoRequestWithConcurrent(t *testing.T) {
+	origTestHookDo := hookDo
+	defer func() { hookDo = origTestHookDo }()
+	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
+		return func(req *http.Request) (*http.Response, error) {
+			return mockResponse(200, ``, nil)
+		}
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(readTimeout int) {
+			runtime := map[string]interface{}{
+				"readTimeout": readTimeout,
+			}
+			for j := 0; j < 50; j++ {
+				wg.Add(1)
+				go func() {
+					request := NewRequest()
+					resp, err := DoRequest(request, runtime)
+					utils.AssertNil(t, err)
+					utils.AssertNotNil(t, resp)
+					wg.Done()
+				}()
+			}
+			wg.Done()
+		}(i)
+	}
+	wg.Wait()
 }
 
 func Test_getHttpProxy(t *testing.T) {
