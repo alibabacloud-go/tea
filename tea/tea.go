@@ -60,7 +60,7 @@ type Request struct {
 
 // Response is use d wrap http response
 type Response struct {
-	*http.Response
+	Body          io.ReadCloser
 	StatusCode    int
 	StatusMessage string
 	Headers       map[string]string
@@ -151,9 +151,8 @@ func NewRequest() (req *Request) {
 
 // NewResponse is create response with http response
 func NewResponse(httpResponse *http.Response) (res *Response) {
-	res = &Response{
-		Response: httpResponse,
-	}
+	res = &Response{}
+	res.Body = httpResponse.Body
 	res.Headers = make(map[string]string)
 	res.StatusCode = httpResponse.StatusCode
 	res.StatusMessage = httpResponse.Status
