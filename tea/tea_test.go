@@ -411,57 +411,6 @@ func Test_hookdo(t *testing.T) {
 	utils.AssertEqual(t, "hookdo", err.Error())
 }
 
-func Test_GetValue(t *testing.T) {
-	num := GetIntValue(nil)
-	utils.AssertEqual(t, 0, num)
-
-	num = num + 2
-	num = GetIntValue(&num)
-	utils.AssertEqual(t, 2, num)
-
-	num64 := GetInt64Value(nil)
-	utils.AssertEqual(t, int64(0), num64)
-
-	num64 = num64 + 2
-	num64 = GetInt64Value(&num64)
-	utils.AssertEqual(t, int64(2), num64)
-
-	float32Value := GetFloat32Value(nil)
-	utils.AssertEqual(t, float32(0), float32Value)
-
-	float32Value = float32Value + 2
-	float32Value = GetFloat32Value(&float32Value)
-	utils.AssertEqual(t, float32(2), float32Value)
-
-	float64Value := GetFloat64Value(nil)
-	utils.AssertEqual(t, float64(0), float64Value)
-
-	float64Value = float64Value + 2
-	float64Value = GetFloat64Value(&float64Value)
-	utils.AssertEqual(t, float64(2), float64Value)
-
-	boolValue := GetBoolValue(nil)
-	utils.AssertEqual(t, false, boolValue)
-
-	boolValue = true
-	boolValue = GetBoolValue(&boolValue)
-	utils.AssertEqual(t, true, boolValue)
-
-	uint64Value := GetUint64Value(nil)
-	utils.AssertEqual(t, uint64(0), uint64Value)
-
-	uint64Value = uint64Value + 2
-	uint64Value = GetUint64Value(&uint64Value)
-	utils.AssertEqual(t, uint64(2), uint64Value)
-
-	str := GetStringValue(nil)
-	utils.AssertEqual(t, "", str)
-
-	str = str + "ok"
-	str = GetStringValue(&str)
-	utils.AssertEqual(t, "ok", str)
-}
-
 func Test_ToReader(t *testing.T) {
 	str := "abc"
 	reader := ToReader(str)
