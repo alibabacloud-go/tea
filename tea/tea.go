@@ -763,55 +763,6 @@ func isFilterType(realType string, filterTypes []string) bool {
 	return false
 }
 
-func GetIntValue(obj *int) int {
-	if obj == nil {
-		return 0
-	}
-	return *obj
-}
-
-func GetInt64Value(obj *int64) int64 {
-	if obj == nil {
-		return 0
-	}
-	return *obj
-}
-
-func GetFloat64Value(obj *float64) float64 {
-	if obj == nil {
-		return 0.00
-	}
-	return *obj
-}
-
-func GetFloat32Value(obj *float32) float32 {
-	if obj == nil {
-		return 0.0
-	}
-	return *obj
-}
-
-func GetBoolValue(obj *bool) bool {
-	if obj == nil {
-		return false
-	}
-	return *obj
-}
-
-func GetUint64Value(obj *uint64) uint64 {
-	if obj == nil {
-		return 0
-	}
-	return *obj
-}
-
-func GetStringValue(obj *string) string {
-	if obj == nil {
-		return ""
-	}
-	return *obj
-}
-
 func TransInterfaceToBool(val interface{}) bool {
 	if val == nil {
 		return false
