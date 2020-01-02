@@ -5,3 +5,8 @@
 <a href="https://travis-ci.org/alibabacloud-go/tea"><img src="https://travis-ci.org/alibabacloud-go/tea.svg?branch=master" alt="Travis Build Status"></a>
 
 This project is used for support TEA OpenAPI DSL. It's a low-level library for http request.
+
+## License
+[Apache-2.0](/LICENSE)
+
+Copyright (c) 2009-present, Alibaba Cloud All rights reserved.
