@@ -262,8 +262,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 			requestURL = fmt.Sprintf("%s?%s", requestURL, querystring)
 		}
 	}
-	debugLog(request.Method)
-	debugLog(requestURL)
+	debugLog("> %s %s", request.Method, requestURL)
 
 	httpRequest, err := http.NewRequest(request.Method, requestURL, request.Body)
 	if err != nil {
