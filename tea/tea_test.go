@@ -21,6 +21,15 @@ type test struct {
 	Key string `json:"key"`
 }
 
+type PrettifyTest struct {
+	name     string
+	Strs     []string
+	Nums8    []int8
+	Unum8    []uint8
+	Value    string
+	Mapvalue map[string]string
+}
+
 var runtimeObj = map[string]interface{}{
 	"ignoreSSL":     false,
 	"readTimeout":   0,
@@ -504,4 +513,19 @@ func Test_validate(t *testing.T) {
 	}
 	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, `strconv.Atoi: parsing "a": invalid syntax`, err.Error())
+}
+
+func Test_Prettify(t *testing.T) {
+	prettifyTest := &PrettifyTest{
+		name:     "prettify",
+		Nums8:    []int8{0, 1, 2, 4},
+		Unum8:    []uint8{0},
+		Value:    "ok",
+		Mapvalue: map[string]string{"key": "ccp", "value": "ok"},
+	}
+	str := Prettify(prettifyTest)
+	utils.AssertContains(t, str, "Nums8")
+
+	str = Prettify(nil)
+	utils.AssertEqual(t, str, "null")
 }

@@ -785,3 +785,8 @@ func TransInterfaceToString(val interface{}) string {
 
 	return val.(string)
 }
+
+func Prettify(i interface{}) string {
+	resp, _ := json.MarshalIndent(i, "", "   ")
+	return string(resp)
+}
