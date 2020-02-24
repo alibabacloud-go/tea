@@ -565,19 +565,55 @@ func ToMap(args ...interface{}) map[string]interface{} {
 		case map[string]interface{}:
 			arg := obj.(map[string]interface{})
 			for key, value := range arg {
-				if value != "" {
+				if value != nil {
 					finalArg[key] = value
 				}
 			}
-		default:
-			byt, _ := json.Marshal(obj)
+		case string:
+			str := obj.(string)
+			arg := make(map[string]interface{})
+			err := json.Unmarshal([]byte(str), &arg)
+			if err == nil {
+				for key, value := range arg {
+					if value != nil {
+						finalArg[key] = value
+					}
+				}
+			}
+			tmp := make(map[string]string)
+			err = json.Unmarshal([]byte(str), &tmp)
+			if err == nil {
+				for key, value := range arg {
+					if value != "" {
+						finalArg[key] = value
+					}
+				}
+			}
+		case []byte:
+			byt := obj.([]byte)
 			arg := make(map[string]interface{})
 			err := json.Unmarshal(byt, &arg)
-			if err != nil {
-				return finalArg
+			if err == nil {
+				for key, value := range arg {
+					if value != nil {
+						finalArg[key] = value
+					}
+				}
 			}
-			for key, value := range arg {
-				if value != "" {
+			tmp := make(map[string]string)
+			err = json.Unmarshal(byt, &tmp)
+			if err == nil {
+				for key, value := range arg {
+					if value != "" {
+						finalArg[key] = value
+					}
+				}
+			}
+		default:
+			val := reflect.ValueOf(obj)
+			res := structToMap(val)
+			for key, value := range res {
+				if value != nil {
 					finalArg[key] = value
 				}
 			}
@@ -585,6 +621,38 @@ func ToMap(args ...interface{}) map[string]interface{} {
 	}
 
 	return finalArg
+}
+
+func structToMap(dataValue reflect.Value) map[string]interface{} {
+	out := make(map[string]interface{})
+	if !dataValue.IsValid() {
+		return out
+	}
+	if dataValue.Kind().String() == "ptr" {
+		dataValue = dataValue.Elem()
+	}
+	dataType := dataValue.Type()
+	if dataType.Kind().String() != "struct" {
+		return out
+	}
+	for i := 0; i < dataType.NumField(); i++ {
+		field := dataType.Field(i)
+		name, containsNameTag := field.Tag.Lookup("json")
+		if !containsNameTag {
+			name = field.Name
+		}
+		if field.Type.Kind().String() == "struct" || (field.Type.Kind().String() == "ptr" && field.Type.Elem().Kind().String() == "struct") {
+			out[name] = structToMap(dataValue.FieldByName(field.Name))
+		} else if field.Type.Kind().String() == "ptr" {
+			if dataValue.FieldByName(field.Name).IsValid() {
+				out[name] = dataValue.FieldByName(field.Name).Elem().Interface()
+			}
+		} else {
+			out[name] = dataValue.FieldByName(field.Name).Interface()
+		}
+
+	}
+	return out
 }
 
 func Retryable(err error) bool {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -199,6 +200,12 @@ func TestMerge(t *testing.T) {
 	utils.AssertEqual(t, map[string]string{}, result)
 }
 
+type Test struct {
+	Msg  *string
+	Cast *CastError
+	Body io.Reader
+}
+
 func TestToMap(t *testing.T) {
 	in := map[string]string{
 		"tea": "test",
@@ -206,14 +213,23 @@ func TestToMap(t *testing.T) {
 	validMap := map[string]interface{}{
 		"valid": "test",
 	}
-	valid := &CastError{
-		Message: "tea",
+	valid := &Test{
+		Body: strings.NewReader("test"),
+		Msg:  String("tea"),
+		Cast: &CastError{
+			Message: "message",
+		},
 	}
-
+	validStr := `{"test":"ok"}`
+	validStr1 := `{"test":"ok","num":1}`
 	invalidStr := "sdfdg"
-	result := ToMap(in, validMap, valid, invalidStr)
+	result := ToMap(in, validMap, valid, validStr, validStr1, []byte(validStr), []byte(validStr1), invalidStr, 10)
+	body := result["Body"].(io.Reader)
+	byt, err := ioutil.ReadAll(body)
+	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", result["tea"])
 	utils.AssertEqual(t, "test", result["valid"])
+	utils.AssertEqual(t, "test", string(byt))
 
 	result = ToMap(nil)
 	utils.AssertEqual(t, map[string]interface{}{}, result)
