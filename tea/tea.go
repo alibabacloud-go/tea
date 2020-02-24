@@ -642,13 +642,17 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 			name = field.Name
 		}
 		if field.Type.Kind().String() == "struct" || (field.Type.Kind().String() == "ptr" && field.Type.Elem().Kind().String() == "struct") {
-			out[name] = structToMap(dataValue.FieldByName(field.Name))
+			if dataValue.FieldByName(field.Name).IsValid() && !dataValue.FieldByName(field.Name).IsNil() {
+				out[name] = structToMap(dataValue.FieldByName(field.Name))
+			}
 		} else if field.Type.Kind().String() == "ptr" {
 			if dataValue.FieldByName(field.Name).IsValid() {
 				out[name] = dataValue.FieldByName(field.Name).Elem().Interface()
 			}
 		} else {
-			out[name] = dataValue.FieldByName(field.Name).Interface()
+			if dataValue.FieldByName(field.Name).IsValid() {
+				out[name] = dataValue.FieldByName(field.Name).Interface()
+			}
 		}
 
 	}
