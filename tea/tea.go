@@ -646,7 +646,7 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 				out[name] = structToMap(dataValue.FieldByName(field.Name))
 			}
 		} else if field.Type.Kind().String() == "ptr" {
-			if dataValue.FieldByName(field.Name).IsValid() {
+			if dataValue.FieldByName(field.Name).Elem().IsValid() {
 				out[name] = dataValue.FieldByName(field.Name).Elem().Interface()
 			}
 		} else {
