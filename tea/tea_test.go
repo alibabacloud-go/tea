@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -201,9 +200,12 @@ func TestMerge(t *testing.T) {
 }
 
 type Test struct {
-	Msg  *string
-	Cast *CastError
-	Body io.Reader
+	Msg         *string
+	Cast        *CastError
+	ListPtr     []*string
+	List        []string
+	CastList    []CastError
+	CastListPtr []*CastError
 }
 
 func TestToMap(t *testing.T) {
@@ -214,22 +216,32 @@ func TestToMap(t *testing.T) {
 		"valid": "test",
 	}
 	valid := &Test{
-		Body: strings.NewReader("test"),
-		Msg:  String("tea"),
+		Msg: String("tea"),
 		Cast: &CastError{
 			Message: "message",
 		},
+		ListPtr: StringSlice([]string{"test"}),
+		List:    []string{"list"},
+		CastListPtr: []*CastError{
+			&CastError{
+				Message: "message",
+			},
+		},
+		CastList: []CastError{
+			CastError{
+				Message: "message",
+			},
+		},
+	}
+	valid1 := &Test{
+		Msg: String("tea"),
 	}
 	validStr := `{"test":"ok"}`
 	validStr1 := `{"test":"ok","num":1}`
 	invalidStr := "sdfdg"
-	result := ToMap(in, validMap, valid, validStr, validStr1, []byte(validStr), []byte(validStr1), invalidStr, 10)
-	body := result["Body"].(io.Reader)
-	byt, err := ioutil.ReadAll(body)
-	utils.AssertNil(t, err)
+	result := ToMap(in, validMap, valid, valid1, validStr, validStr1, []byte(validStr), []byte(validStr1), invalidStr, 10)
 	utils.AssertEqual(t, "test", result["tea"])
 	utils.AssertEqual(t, "test", result["valid"])
-	utils.AssertEqual(t, "test", string(byt))
 
 	result = ToMap(nil)
 	utils.AssertEqual(t, map[string]interface{}{}, result)

@@ -1,8 +1,6 @@
 language: go
 
 go:
-  - 1.10.x
-  - 1.11.x
   - 1.12.x
 
 branches: # build only on these branches
@@ -10,8 +8,7 @@ branches: # build only on these branches
     - master
 
 install:
-  - go get -u github.com/golang/dep/cmd/dep
-  - dep ensure
+  - export GO111MODULE=on
 
 notifications:
     webhooks: https://oapi.dingtalk.com/robot/send?access_token=096ed387df243a6d60835aadeccc47165f3813bc7cb81cdd0cfeadfd28e3acc1
@@ -20,8 +17,7 @@ notifications:
     on_failure: always
 
 script:
-  - go vet ./tea/...
-  - go vet ./utils/...
+  - go mod tidy
   - go test -race -coverprofile=coverage.txt -covermode=atomic ./tea/... ./utils/...
 
 after_success:
