@@ -599,15 +599,7 @@ func ToMap(args ...interface{}) map[string]interface{} {
 						finalArg[key] = value
 					}
 				}
-			}
-			tmp := make(map[string]string)
-			err = json.Unmarshal(byt, &tmp)
-			if err == nil {
-				for key, value := range arg {
-					if value != "" {
-						finalArg[key] = value
-					}
-				}
+				break
 			}
 		default:
 			val := reflect.ValueOf(obj)
@@ -631,6 +623,9 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 	if dataValue.Kind().String() == "ptr" {
 		dataValue = dataValue.Elem()
 	}
+	if !dataValue.IsValid() {
+		return out
+	}
 	dataType := dataValue.Type()
 	if dataType.Kind().String() != "struct" {
 		return out
@@ -641,18 +636,43 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 		if !containsNameTag {
 			name = field.Name
 		}
-		if field.Type.Kind().String() == "struct" || (field.Type.Kind().String() == "ptr" && field.Type.Elem().Kind().String() == "struct") {
-			if dataValue.FieldByName(field.Name).IsValid() && !dataValue.FieldByName(field.Name).IsNil() {
-				out[name] = structToMap(dataValue.FieldByName(field.Name))
-			}
+		fieldValue := dataValue.FieldByName(name)
+		if !fieldValue.IsValid() {
+			continue
+		}
+		if field.Type.Kind().String() == "struct" ||
+			(field.Type.Kind().String() == "ptr" &&
+				field.Type.Elem().Kind().String() == "struct") {
+			out[name] = structToMap(fieldValue)
 		} else if field.Type.Kind().String() == "ptr" {
-			if dataValue.FieldByName(field.Name).Elem().IsValid() {
-				out[name] = dataValue.FieldByName(field.Name).Elem().Interface()
+			if fieldValue.IsValid() &&
+				fieldValue.Elem().IsValid() {
+				out[name] = fieldValue.Elem().Interface()
+			}
+		} else if field.Type.Kind().String() == "slice" {
+			tmp := make([]interface{}, 0)
+			num := fieldValue.Len()
+			for i := 0; i < num; i++ {
+				value := fieldValue.Index(i)
+				if !value.IsValid() {
+					continue
+				}
+				if value.Type().Kind().String() == "ptr" &&
+					value.Type().Elem().Kind().String() == "struct" {
+					tmp = append(tmp, structToMap(value))
+				} else if value.Type().Kind().String() == "struct" {
+					tmp = append(tmp, structToMap(value))
+				} else if value.Type().Kind().String() == "ptr" {
+					tmp = append(tmp, value.Elem().Interface())
+				} else {
+					tmp = append(tmp, value.Interface())
+				}
+			}
+			if len(tmp) > 0 {
+				out[name] = tmp
 			}
 		} else {
-			if dataValue.FieldByName(field.Name).IsValid() {
-				out[name] = dataValue.FieldByName(field.Name).Interface()
-			}
+			out[name] = fieldValue.Interface()
 		}
 
 	}
