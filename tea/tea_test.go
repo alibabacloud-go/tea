@@ -200,48 +200,80 @@ func TestMerge(t *testing.T) {
 }
 
 type Test struct {
-	Msg         *string
-	Cast        *CastError
-	ListPtr     []*string
-	List        []string
-	CastList    []CastError
-	CastListPtr []*CastError
+	Msg         *string      `json:"Msg"`
+	Cast        *CastError   `json:"Cast"`
+	ListPtr     []*string    `json:"ListPtr"`
+	List        []string     `json:"List"`
+	CastList    []CastError  `json:"CastList"`
+	CastListPtr []*CastError `json:"CastListPtr"`
 }
 
 func TestToMap(t *testing.T) {
 	in := map[string]string{
 		"tea": "test",
 	}
+	result := ToMap(in)
+	utils.AssertEqual(t, "test", result["tea"])
+
 	validMap := map[string]interface{}{
 		"valid": "test",
 	}
+	result = ToMap(validMap)
+	utils.AssertEqual(t, "test", result["valid"])
+
 	valid := &Test{
 		Msg: String("tea"),
 		Cast: &CastError{
 			Message: "message",
 		},
-		ListPtr: StringSlice([]string{"test"}),
+		ListPtr: StringSlice([]string{"test", ""}),
 		List:    []string{"list"},
 		CastListPtr: []*CastError{
 			&CastError{
-				Message: "message",
+				Message: "CastListPtr",
 			},
+			nil,
 		},
 		CastList: []CastError{
 			CastError{
-				Message: "message",
+				Message: "CastList",
 			},
 		},
 	}
+	result = ToMap(valid)
+	utils.AssertEqual(t, "tea", result["Msg"])
+	utils.AssertEqual(t, map[string]interface{}{"Message": "message"}, result["Cast"])
+	utils.AssertEqual(t, []interface{}{"test", ""}, result["ListPtr"])
+	utils.AssertEqual(t, []interface{}{"list"}, result["List"])
+	utils.AssertEqual(t, []interface{}{map[string]interface{}{"Message": "CastListPtr"}}, result["CastListPtr"])
+	utils.AssertEqual(t, []interface{}{map[string]interface{}{"Message": "CastList"}}, result["CastList"])
+
 	valid1 := &Test{
 		Msg: String("tea"),
 	}
+	result = ToMap(valid1)
+	utils.AssertEqual(t, "tea", result["Msg"])
+
 	validStr := `{"test":"ok"}`
+	result = ToMap(validStr)
+	utils.AssertEqual(t, "ok", result["test"])
+
 	validStr1 := `{"test":"ok","num":1}`
+	result = ToMap(validStr1)
+	utils.AssertEqual(t, "ok", result["test"])
+
+	result = ToMap([]byte(validStr))
+	utils.AssertEqual(t, "ok", result["test"])
+
+	result = ToMap([]byte(validStr1))
+	utils.AssertEqual(t, "ok", result["test"])
+
 	invalidStr := "sdfdg"
-	result := ToMap(in, validMap, valid, valid1, validStr, validStr1, []byte(validStr), []byte(validStr1), invalidStr, 10)
-	utils.AssertEqual(t, "test", result["tea"])
-	utils.AssertEqual(t, "test", result["valid"])
+	result = ToMap(invalidStr)
+	utils.AssertEqual(t, result, map[string]interface{}{})
+
+	result = ToMap(10)
+	utils.AssertEqual(t, result, map[string]interface{}{})
 
 	result = ToMap(nil)
 	utils.AssertEqual(t, map[string]interface{}{}, result)

@@ -491,11 +491,8 @@ func (err *SDKError) Error() string {
 
 func ToObject(obj interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
-	byt, err := json.Marshal(obj)
-	if err != nil {
-		return nil
-	}
-	err = json.Unmarshal(byt, &result)
+	byt, _ := json.Marshal(obj)
+	err := json.Unmarshal(byt, &result)
 	if err != nil {
 		return nil
 	}
@@ -636,17 +633,19 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 		if !containsNameTag {
 			name = field.Name
 		}
-		fieldValue := dataValue.FieldByName(name)
+		fieldValue := dataValue.FieldByName(field.Name)
 		if !fieldValue.IsValid() {
 			continue
 		}
-		if field.Type.Kind().String() == "struct" ||
-			(field.Type.Kind().String() == "ptr" &&
-				field.Type.Elem().Kind().String() == "struct") {
+		if field.Type.Kind().String() == "struct" {
 			out[name] = structToMap(fieldValue)
+		} else if field.Type.Kind().String() == "ptr" &&
+			field.Type.Elem().Kind().String() == "struct" {
+			if fieldValue.Elem().IsValid() {
+				out[name] = structToMap(fieldValue)
+			}
 		} else if field.Type.Kind().String() == "ptr" {
-			if fieldValue.IsValid() &&
-				fieldValue.Elem().IsValid() {
+			if fieldValue.IsValid() && !fieldValue.IsNil() {
 				out[name] = fieldValue.Elem().Interface()
 			}
 		} else if field.Type.Kind().String() == "slice" {
@@ -659,11 +658,15 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 				}
 				if value.Type().Kind().String() == "ptr" &&
 					value.Type().Elem().Kind().String() == "struct" {
-					tmp = append(tmp, structToMap(value))
+					if value.IsValid() && !value.IsNil() {
+						tmp = append(tmp, structToMap(value))
+					}
 				} else if value.Type().Kind().String() == "struct" {
 					tmp = append(tmp, structToMap(value))
 				} else if value.Type().Kind().String() == "ptr" {
-					tmp = append(tmp, value.Elem().Interface())
+					if value.IsValid() && !value.IsNil() {
+						tmp = append(tmp, value.Elem().Interface())
+					}
 				} else {
 					tmp = append(tmp, value.Interface())
 				}
