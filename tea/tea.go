@@ -291,8 +291,11 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 	for key, value := range request.Headers {
 		if value == "" || key == "content-length" {
 			continue
+		} else if key == "host" {
+			httpRequest.Header["Host"] = []string{value}
+		} else {
+			httpRequest.Header[key] = []string{value}
 		}
-		httpRequest.Header[key] = []string{value}
 		debugLog("> %s: %s", key, value)
 	}
 	contentlength, _ := strconv.Atoi(request.Headers["content-length"])
