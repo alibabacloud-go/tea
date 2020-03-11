@@ -18,7 +18,8 @@ import (
 )
 
 type test struct {
-	Key string `json:"key"`
+	Key  string `json:"key"`
+	Body []byte `json:"body"`
 }
 
 type PrettifyTest struct {
@@ -99,12 +100,14 @@ func TestResponse(t *testing.T) {
 
 func TestConvert(t *testing.T) {
 	in := map[string]interface{}{
-		"key": "value",
+		"key":  "value",
+		"body": []byte("test"),
 	}
 	out := new(test)
 	err := Convert(in, &out)
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "value", out.Key)
+	utils.AssertEqual(t, "test", string(out.Body))
 }
 
 func TestConvertType(t *testing.T) {
@@ -350,6 +353,11 @@ func Test_DoRequest(t *testing.T) {
 	request.Pathname = "?log"
 	request.Headers["tea"] = ""
 	runtimeObj["httpsProxy"] = "http://someuser:somepassword@ecs.aliyun.com"
+	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `Internal error`, err.Error())
+
+	request.Headers["host"] = "tea-cn-hangzhou.aliyuncs.com:80"
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `Internal error`, err.Error())

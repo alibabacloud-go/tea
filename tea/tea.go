@@ -246,8 +246,14 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 		request.Port = 443
 	}
 
+	requestURL := ""
 	request.Domain = request.Headers["host"]
-	requestURL := fmt.Sprintf("%s://%s:%d%s", request.Protocol, request.Domain, request.Port, request.Pathname)
+	matched, _ := regexp.MatchString(":", request.Domain)
+	if matched {
+		requestURL = fmt.Sprintf("%s://%s%s", request.Protocol, request.Domain, request.Pathname)
+	} else {
+		requestURL = fmt.Sprintf("%s://%s:%d%s", request.Protocol, request.Domain, request.Port, request.Pathname)
+	}
 	queryParams := request.Query
 	// sort QueryParams by key
 	q := url.Values{}
