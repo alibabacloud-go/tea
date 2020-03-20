@@ -47,6 +47,7 @@ var runtimeObj = map[string]interface{}{
 
 type validateTest struct {
 	Num  *int       `json:"num" require:"true"`
+	Name *string    `json:"name" maxLength:"4"`
 	Str  *string    `json:"str" pattern:"^[a-d]*$" maxLength:"4"`
 	Test *errLength `json:"test"`
 	List []*string  `json:"list" pattern:"^[a-d]*$" maxLength:"4"`
@@ -541,7 +542,7 @@ func Test_validate(t *testing.T) {
 	utils.AssertNil(t, err)
 
 	num := 1
-	str0, str1 := "acc", "abcddd"
+	str0, str1 := "abc", "abcddd"
 	val := &validateTest{
 		Num:  &num,
 		Str:  &str0,
@@ -556,6 +557,10 @@ func Test_validate(t *testing.T) {
 	utils.AssertEqual(t, "Length of abcddd is more than 4", err.Error())
 
 	val.Num = nil
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, "num should be setted", err.Error())
+
+	val.Name = String("最大长度")
 	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, "num should be setted", err.Error())
 

@@ -850,7 +850,7 @@ func checkMaxLength(valueField reflect.Value, tag string) error {
 		}
 		length := valueField.Len()
 		if valueField.Kind().String() == "string" {
-			length = len([]byte(valueField.String()))
+			length = strings.Count(valueField.String(), "") - 1
 		}
 		if maxLength < length {
 			errMsg := fmt.Sprintf("Length of %s is more than %d", valueField.String(), maxLength)
