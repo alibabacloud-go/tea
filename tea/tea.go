@@ -558,8 +558,14 @@ func Merge(args ...interface{}) map[string]string {
 }
 
 func ToMap(args ...interface{}) map[string]interface{} {
+	isNotNil := false
 	finalArg := make(map[string]interface{})
 	for _, obj := range args {
+		if obj == nil {
+			continue
+		}
+		isNotNil = true
+
 		switch obj.(type) {
 		case map[string]string:
 			arg := obj.(map[string]string)
@@ -618,7 +624,7 @@ func ToMap(args ...interface{}) map[string]interface{} {
 		}
 	}
 
-	if len(finalArg) == 0 {
+	if !isNotNil {
 		return nil
 	}
 	return finalArg
