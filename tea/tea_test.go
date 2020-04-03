@@ -274,13 +274,13 @@ func TestToMap(t *testing.T) {
 
 	invalidStr := "sdfdg"
 	result = ToMap(invalidStr)
-	utils.AssertEqual(t, result, map[string]interface{}{})
+	utils.AssertNil(t, result)
 
 	result = ToMap(10)
-	utils.AssertEqual(t, result, map[string]interface{}{})
+	utils.AssertNil(t, result)
 
 	result = ToMap(nil)
-	utils.AssertEqual(t, map[string]interface{}{}, result)
+	utils.AssertNil(t, result)
 }
 
 func Test_Retryable(t *testing.T) {

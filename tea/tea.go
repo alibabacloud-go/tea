@@ -618,6 +618,9 @@ func ToMap(args ...interface{}) map[string]interface{} {
 		}
 	}
 
+	if len(finalArg) == 0 {
+		return nil
+	}
 	return finalArg
 }
 
