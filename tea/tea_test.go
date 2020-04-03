@@ -274,10 +274,10 @@ func TestToMap(t *testing.T) {
 
 	invalidStr := "sdfdg"
 	result = ToMap(invalidStr)
-	utils.AssertNil(t, result)
+	utils.AssertEqual(t, map[string]interface{}{}, result)
 
 	result = ToMap(10)
-	utils.AssertNil(t, result)
+	utils.AssertEqual(t, map[string]interface{}{}, result)
 
 	result = ToMap(nil)
 	utils.AssertNil(t, result)
