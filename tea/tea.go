@@ -557,11 +557,23 @@ func Merge(args ...interface{}) map[string]string {
 	return finalArg
 }
 
+func isNil(a interface{}) bool {
+	defer func() {
+		recover()
+	}()
+	vi := reflect.ValueOf(a)
+	return vi.IsNil()
+}
+
 func ToMap(args ...interface{}) map[string]interface{} {
 	isNotNil := false
 	finalArg := make(map[string]interface{})
 	for _, obj := range args {
 		if obj == nil {
+			continue
+		}
+
+		if isNil(obj) {
 			continue
 		}
 		isNotNil = true
