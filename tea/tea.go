@@ -48,11 +48,11 @@ type CastError struct {
 
 // Request is used wrap http request
 type Request struct {
-	Protocol string
-	Port     int
-	Method   string
-	Pathname string
-	Domain   string
+	Protocol *string
+	Port     *int
+	Method   *string
+	Pathname *string
+	Domain   *string
 	Headers  map[string]string
 	Query    map[string]string
 	Body     io.Reader
@@ -61,8 +61,8 @@ type Request struct {
 // Response is use d wrap http response
 type Response struct {
 	Body          io.ReadCloser
-	StatusCode    int
-	StatusMessage string
+	StatusCode    *int
+	StatusMessage *string
 	Headers       map[string]string
 }
 
@@ -154,8 +154,8 @@ func NewResponse(httpResponse *http.Response) (res *Response) {
 	res = &Response{}
 	res.Body = httpResponse.Body
 	res.Headers = make(map[string]string)
-	res.StatusCode = httpResponse.StatusCode
-	res.StatusMessage = httpResponse.Status
+	res.StatusCode = Int(httpResponse.StatusCode)
+	res.StatusMessage = String(httpResponse.Status)
 	return
 }
 
@@ -230,29 +230,29 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 			runtimeObject.Logger.PrintLog(fieldMap, err)
 		}
 	}()
-	if request.Method == "" {
-		request.Method = "GET"
+	if request.Method == nil {
+		request.Method = String("GET")
 	}
 
-	if request.Protocol == "" {
-		request.Protocol = "http"
+	if request.Protocol == nil {
+		request.Protocol = String("http")
 	} else {
-		request.Protocol = strings.ToLower(request.Protocol)
+		request.Protocol = String(strings.ToLower(StringValue(request.Protocol)))
 	}
 
-	if request.Protocol == "http" {
-		request.Port = 80
-	} else if request.Protocol == "https" {
-		request.Port = 443
+	if StringValue(request.Protocol) == "http" {
+		request.Port = Int(80)
+	} else if StringValue(request.Protocol) == "https" {
+		request.Port = Int(443)
 	}
 
 	requestURL := ""
-	request.Domain = request.Headers["host"]
-	matched, _ := regexp.MatchString(":", request.Domain)
+	request.Domain = String(request.Headers["host"])
+	matched, _ := regexp.MatchString(":", StringValue(request.Domain))
 	if matched {
-		requestURL = fmt.Sprintf("%s://%s%s", request.Protocol, request.Domain, request.Pathname)
+		requestURL = fmt.Sprintf("%s://%s%s", StringValue(request.Protocol), StringValue(request.Domain), StringValue(request.Pathname))
 	} else {
-		requestURL = fmt.Sprintf("%s://%s:%d%s", request.Protocol, request.Domain, request.Port, request.Pathname)
+		requestURL = fmt.Sprintf("%s://%s:%d%s", StringValue(request.Protocol), StringValue(request.Domain), IntValue(request.Port), StringValue(request.Pathname))
 	}
 	queryParams := request.Query
 	// sort QueryParams by key
@@ -268,15 +268,15 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 			requestURL = fmt.Sprintf("%s?%s", requestURL, querystring)
 		}
 	}
-	debugLog("> %s %s", request.Method, requestURL)
+	debugLog("> %s %s", StringValue(request.Method), requestURL)
 
-	httpRequest, err := http.NewRequest(request.Method, requestURL, request.Body)
+	httpRequest, err := http.NewRequest(StringValue(request.Method), requestURL, request.Body)
 	if err != nil {
 		return
 	}
-	httpRequest.Host = request.Domain
+	httpRequest.Host = StringValue(request.Domain)
 
-	client := getTeaClient(runtimeObject.getClientTag(request.Domain))
+	client := getTeaClient(runtimeObject.getClientTag(StringValue(request.Domain)))
 	client.Lock()
 	if !client.ifInit {
 		trans, err := getHttpTransport(request, runtimeObject)
@@ -335,7 +335,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 
 func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, error) {
 	trans := new(http.Transport)
-	httpProxy, err := getHttpProxy(req.Protocol, req.Domain, runtime)
+	httpProxy, err := getHttpProxy(StringValue(req.Protocol), StringValue(req.Domain), runtime)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +369,7 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 				&net.Dialer{
 					Timeout:   time.Duration(runtime.ConnectTimeout) * time.Second,
 					DualStack: true,
-					LocalAddr: getLocalAddr(runtime.LocalAddr, req.Port),
+					LocalAddr: getLocalAddr(runtime.LocalAddr, IntValue(req.Port)),
 				})
 			if err != nil {
 				return nil, err
@@ -377,7 +377,7 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 			trans.Dial = dialer.Dial
 		}
 	} else {
-		trans.DialContext = setDialContext(runtime, req.Port)
+		trans.DialContext = setDialContext(runtime, IntValue(req.Port))
 	}
 	return trans, nil
 }
@@ -495,7 +495,7 @@ func setDialContext(runtime *RuntimeObject, port int) func(cxt context.Context, 
 }
 
 func (err *SDKError) Error() string {
-	return fmt.Sprintf("SDKError: %s %s %s", err.Code, err.Message, err.Data)
+	return fmt.Sprintf("SDKError:\n   Code: %s\n   Message: %s\n   Data: %s\n", err.Code, err.Message, err.Data)
 }
 
 func ToObject(obj interface{}) map[string]interface{} {
