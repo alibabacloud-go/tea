@@ -140,7 +140,7 @@ func TestSDKError(t *testing.T) {
 		},
 	})
 	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "SDKError: code message {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"requestId\":\"dfadfa32cgfdcasd4313\"}", err.Error())
+	utils.AssertEqual(t, "SDKError:\n   Code: code\n   Message: message\n   Data: {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"requestId\":\"dfadfa32cgfdcasd4313\"}\n", err.Error())
 }
 
 func TestSDKErrorCode404(t *testing.T) {
@@ -149,7 +149,7 @@ func TestSDKErrorCode404(t *testing.T) {
 		"message": "message",
 	})
 	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "SDKError: 404 message ", err.Error())
+	utils.AssertEqual(t, "SDKError:\n   Code: 404\n   Message: message\n   Data: \n", err.Error())
 }
 
 func TestToObject(t *testing.T) {
@@ -335,14 +335,14 @@ func Test_DoRequest(t *testing.T) {
 		}
 	}
 	request := NewRequest()
-	request.Port = 80
-	request.Method = "TEA TEST"
+	request.Port = Int(80)
+	request.Method = String("TEA TEST")
 	resp, err := DoRequest(request, nil)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `net/http: invalid method "TEA TEST"`, err.Error())
 
-	request.Method = ""
-	request.Protocol = "https"
+	request.Method = String("")
+	request.Protocol = String("https")
 	request.Query = map[string]string{
 		"tea": "test",
 	}
@@ -351,7 +351,7 @@ func Test_DoRequest(t *testing.T) {
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `parse # #%gfdf: invalid URL escape "%gf"`, err.Error())
 
-	request.Pathname = "?log"
+	request.Pathname = String("?log")
 	request.Headers["tea"] = ""
 	runtimeObj["httpsProxy"] = "http://someuser:somepassword@ecs.aliyun.com"
 	resp, err = DoRequest(request, runtimeObj)
