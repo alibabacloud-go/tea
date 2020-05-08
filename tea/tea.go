@@ -43,7 +43,7 @@ var validateParams = []string{"require", "pattern", "maxLength"}
 
 // CastError is used for cast type fails
 type CastError struct {
-	Message string
+	Message *string
 }
 
 // Request is used wrap http request
@@ -53,8 +53,8 @@ type Request struct {
 	Method   *string
 	Pathname *string
 	Domain   *string
-	Headers  map[string]string
-	Query    map[string]string
+	Headers  map[string]*string
+	Query    map[string]*string
 	Body     io.Reader
 }
 
@@ -63,28 +63,28 @@ type Response struct {
 	Body          io.ReadCloser
 	StatusCode    *int
 	StatusMessage *string
-	Headers       map[string]string
+	Headers       map[string]*string
 }
 
 // SDKError struct is used save error code and message
 type SDKError struct {
-	Code    string
-	Message string
-	Data    string
+	Code    *string
+	Message *string
+	Data    *string
 }
 
 // RuntimeObject is used for converting http configuration
 type RuntimeObject struct {
-	IgnoreSSL      bool                   `json:"ignoreSSL" xml:"ignoreSSL"`
-	ReadTimeout    int                    `json:"readTimeout" xml:"readTimeout"`
-	ConnectTimeout int                    `json:"connectTimeout" xml:"connectTimeout"`
-	LocalAddr      string                 `json:"localAddr" xml:"localAddr"`
-	HttpProxy      string                 `json:"httpProxy" xml:"httpProxy"`
-	HttpsProxy     string                 `json:"httpsProxy" xml:"httpsProxy"`
-	NoProxy        string                 `json:"noProxy" xml:"noProxy"`
-	MaxIdleConns   int                    `json:"maxIdleConns" xml:"maxIdleConns"`
-	Socks5Proxy    string                 `json:"socks5Proxy" xml:"socks5Proxy"`
-	Socks5NetWork  string                 `json:"socks5NetWork" xml:"socks5NetWork"`
+	IgnoreSSL      *bool                  `json:"ignoreSSL" xml:"ignoreSSL"`
+	ReadTimeout    *int                   `json:"readTimeout" xml:"readTimeout"`
+	ConnectTimeout *int                   `json:"connectTimeout" xml:"connectTimeout"`
+	LocalAddr      *string                `json:"localAddr" xml:"localAddr"`
+	HttpProxy      *string                `json:"httpProxy" xml:"httpProxy"`
+	HttpsProxy     *string                `json:"httpsProxy" xml:"httpsProxy"`
+	NoProxy        *string                `json:"noProxy" xml:"noProxy"`
+	MaxIdleConns   *int                   `json:"maxIdleConns" xml:"maxIdleConns"`
+	Socks5Proxy    *string                `json:"socks5Proxy" xml:"socks5Proxy"`
+	Socks5NetWork  *string                `json:"socks5NetWork" xml:"socks5NetWork"`
 	Listener       utils.ProgressListener `json:"listener" xml:"listener"`
 	Tracker        *utils.ReaderTracker   `json:"tracker" xml:"tracker"`
 	Logger         *utils.Logger          `json:"logger" xml:"logger"`
@@ -99,9 +99,9 @@ type teaClient struct {
 var clientPool = &sync.Map{}
 
 func (r *RuntimeObject) getClientTag(domain string) string {
-	return strconv.FormatBool(r.IgnoreSSL) + strconv.Itoa(r.ReadTimeout) +
-		strconv.Itoa(r.ConnectTimeout) + r.LocalAddr + r.HttpProxy +
-		r.HttpsProxy + r.NoProxy + r.Socks5Proxy + r.Socks5NetWork + domain
+	return strconv.FormatBool(BoolValue(r.IgnoreSSL)) + strconv.Itoa(IntValue(r.ReadTimeout)) +
+		strconv.Itoa(IntValue(r.ConnectTimeout)) + StringValue(r.LocalAddr) + StringValue(r.HttpProxy) +
+		StringValue(r.HttpsProxy) + StringValue(r.NoProxy) + StringValue(r.Socks5Proxy) + StringValue(r.Socks5NetWork) + domain
 }
 
 // NewRuntimeObject is used for shortly create runtime object
@@ -135,7 +135,7 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 }
 
 // NewCastError is used for cast type fails
-func NewCastError(message string) (err error) {
+func NewCastError(message *string) (err error) {
 	return &CastError{
 		Message: message,
 	}
@@ -144,8 +144,8 @@ func NewCastError(message string) (err error) {
 // NewRequest is used shortly create Request
 func NewRequest() (req *Request) {
 	return &Request{
-		Headers: map[string]string{},
-		Query:   map[string]string{},
+		Headers: map[string]*string{},
+		Query:   map[string]*string{},
 	}
 }
 
@@ -153,7 +153,7 @@ func NewRequest() (req *Request) {
 func NewResponse(httpResponse *http.Response) (res *Response) {
 	res = &Response{}
 	res.Body = httpResponse.Body
-	res.Headers = make(map[string]string)
+	res.Headers = make(map[string]*string)
 	res.StatusCode = Int(httpResponse.StatusCode)
 	res.StatusMessage = String(httpResponse.Status)
 	return
@@ -163,24 +163,24 @@ func NewResponse(httpResponse *http.Response) (res *Response) {
 func NewSDKError(obj map[string]interface{}) *SDKError {
 	err := &SDKError{}
 	if val, ok := obj["code"].(int); ok {
-		err.Code = strconv.Itoa(val)
+		err.Code = String(strconv.Itoa(val))
 	} else if val, ok := obj["code"].(string); ok {
-		err.Code = val
+		err.Code = String(val)
 	}
 
 	if obj["message"] != nil {
-		err.Message = obj["message"].(string)
+		err.Message = String(obj["message"].(string))
 	}
 	if data := obj["data"]; data != nil {
 		byt, _ := json.Marshal(data)
-		err.Data = string(byt)
+		err.Data = String(string(byt))
 	}
 	return err
 }
 
 // Return message of CastError
 func (err *CastError) Error() string {
-	return err.Message
+	return StringValue(err.Message)
 }
 
 // Convert is use convert map[string]interface object to struct
@@ -247,7 +247,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 	}
 
 	requestURL := ""
-	request.Domain = String(request.Headers["host"])
+	request.Domain = request.Headers["host"]
 	matched, _ := regexp.MatchString(":", StringValue(request.Domain))
 	if matched {
 		requestURL = fmt.Sprintf("%s://%s%s", StringValue(request.Protocol), StringValue(request.Domain), StringValue(request.Pathname))
@@ -258,7 +258,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 	// sort QueryParams by key
 	q := url.Values{}
 	for key, value := range queryParams {
-		q.Add(key, value)
+		q.Add(key, StringValue(value))
 	}
 	querystring := q.Encode()
 	if len(querystring) > 0 {
@@ -283,22 +283,22 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 		if err != nil {
 			return nil, err
 		}
-		client.httpClient.Timeout = time.Duration(runtimeObject.ConnectTimeout) * time.Second
+		client.httpClient.Timeout = time.Duration(IntValue(runtimeObject.ConnectTimeout)) * time.Second
 		client.httpClient.Transport = trans
 		client.ifInit = true
 	}
 	client.Unlock()
 	for key, value := range request.Headers {
-		if value == "" || key == "content-length" {
+		if value == nil || key == "content-length" {
 			continue
 		} else if key == "host" {
-			httpRequest.Header["Host"] = []string{value}
+			httpRequest.Header["Host"] = []string{*value}
 		} else {
-			httpRequest.Header[key] = []string{value}
+			httpRequest.Header[key] = []string{*value}
 		}
 		debugLog("> %s: %s", key, value)
 	}
-	contentlength, _ := strconv.Atoi(request.Headers["content-length"])
+	contentlength, _ := strconv.Atoi(StringValue(request.Headers["content-length"]))
 	event := utils.NewProgressEvent(utils.TransferStartedEvent, 0, int64(contentlength), 0)
 	utils.PublishProgress(runtimeObject.Listener, event)
 
@@ -327,7 +327,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 	for key, value := range res.Header {
 		debugLog("< %s: %s", key, strings.Join(value, ""))
 		if len(value) != 0 {
-			response.Headers[strings.ToLower(key)] = value[0]
+			response.Headers[strings.ToLower(key)] = String(value[0])
 		}
 	}
 	return
@@ -340,7 +340,7 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 		return nil, err
 	}
 	trans.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: runtime.IgnoreSSL,
+		InsecureSkipVerify: BoolValue(runtime.IgnoreSSL),
 	}
 	if httpProxy != nil {
 		trans.Proxy = http.ProxyURL(httpProxy)
@@ -348,10 +348,10 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 			password, _ := httpProxy.User.Password()
 			auth := httpProxy.User.Username() + ":" + password
 			basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
-			req.Headers["Proxy-Authorization"] = basic
+			req.Headers["Proxy-Authorization"] = String(basic)
 		}
 	}
-	if runtime.Socks5Proxy != "" {
+	if runtime.Socks5Proxy != nil {
 		socks5Proxy, err := getSocks5Proxy(runtime)
 		if err != nil {
 			return nil, err
@@ -365,11 +365,11 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 					Password: password,
 				}
 			}
-			dialer, err := proxy.SOCKS5(strings.ToLower(runtime.Socks5NetWork), socks5Proxy.String(), auth,
+			dialer, err := proxy.SOCKS5(strings.ToLower(StringValue(runtime.Socks5NetWork)), socks5Proxy.String(), auth,
 				&net.Dialer{
-					Timeout:   time.Duration(runtime.ConnectTimeout) * time.Second,
+					Timeout:   time.Duration(IntValue(runtime.ConnectTimeout)) * time.Second,
 					DualStack: true,
-					LocalAddr: getLocalAddr(runtime.LocalAddr, IntValue(req.Port)),
+					LocalAddr: getLocalAddr(StringValue(runtime.LocalAddr), IntValue(req.Port)),
 				})
 			if err != nil {
 				return nil, err
@@ -401,8 +401,8 @@ func putMsgToMap(fieldMap map[string]string, request *http.Request) {
 
 func getNoProxy(protocol string, runtime *RuntimeObject) []string {
 	var urls []string
-	if runtime.NoProxy != "" {
-		urls = strings.Split(runtime.NoProxy, ",")
+	if runtime.NoProxy != nil {
+		urls = strings.Split(StringValue(runtime.NoProxy), ",")
 	} else if rawurl := os.Getenv("NO_PROXY"); rawurl != "" {
 		urls = strings.Split(rawurl, ",")
 	} else if rawurl := os.Getenv("no_proxy"); rawurl != "" {
@@ -437,16 +437,16 @@ func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL
 		}
 	}
 	if protocol == "https" {
-		if runtime.HttpsProxy != "" {
-			proxy, err = url.Parse(runtime.HttpsProxy)
+		if runtime.HttpsProxy != nil {
+			proxy, err = url.Parse(StringValue(runtime.HttpsProxy))
 		} else if rawurl := os.Getenv("HTTPS_PROXY"); rawurl != "" {
 			proxy, err = url.Parse(rawurl)
 		} else if rawurl := os.Getenv("https_proxy"); rawurl != "" {
 			proxy, err = url.Parse(rawurl)
 		}
 	} else {
-		if runtime.HttpProxy != "" {
-			proxy, err = url.Parse(runtime.HttpProxy)
+		if runtime.HttpProxy != nil {
+			proxy, err = url.Parse(StringValue(runtime.HttpProxy))
 		} else if rawurl := os.Getenv("HTTP_PROXY"); rawurl != "" {
 			proxy, err = url.Parse(rawurl)
 		} else if rawurl := os.Getenv("http_proxy"); rawurl != "" {
@@ -458,8 +458,8 @@ func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL
 }
 
 func getSocks5Proxy(runtime *RuntimeObject) (proxy *url.URL, err error) {
-	if runtime.Socks5Proxy != "" {
-		proxy, err = url.Parse(runtime.Socks5Proxy)
+	if runtime.Socks5Proxy != nil {
+		proxy, err = url.Parse(StringValue(runtime.Socks5Proxy))
 	}
 	return proxy, err
 }
@@ -476,26 +476,27 @@ func getLocalAddr(localAddr string, port int) (addr *net.TCPAddr) {
 
 func setDialContext(runtime *RuntimeObject, port int) func(cxt context.Context, net, addr string) (c net.Conn, err error) {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
-		if runtime.LocalAddr != "" {
+		if runtime.LocalAddr != nil {
 			netAddr := &net.TCPAddr{
 				Port: port,
-				IP:   []byte(runtime.LocalAddr),
+				IP:   []byte(StringValue(runtime.LocalAddr)),
 			}
 			return (&net.Dialer{
-				Timeout:   time.Duration(runtime.ConnectTimeout) * time.Second,
+				Timeout:   time.Duration(IntValue(runtime.ConnectTimeout)) * time.Second,
 				DualStack: true,
 				LocalAddr: netAddr,
 			}).DialContext(ctx, network, address)
 		}
 		return (&net.Dialer{
-			Timeout:   time.Duration(runtime.ConnectTimeout) * time.Second,
+			Timeout:   time.Duration(IntValue(runtime.ConnectTimeout)) * time.Second,
 			DualStack: true,
 		}).DialContext(ctx, network, address)
 	}
 }
 
 func (err *SDKError) Error() string {
-	return fmt.Sprintf("SDKError:\n   Code: %s\n   Message: %s\n   Data: %s\n", err.Code, err.Message, err.Data)
+	return fmt.Sprintf("SDKError:\n   Code: %s\n   Message: %s\n   Data: %s\n",
+		StringValue(err.Code), StringValue(err.Message), StringValue(err.Data))
 }
 
 func ToObject(obj interface{}) map[string]interface{} {
@@ -717,7 +718,7 @@ func Retryable(err error) bool {
 		return false
 	}
 	if realErr, ok := err.(*SDKError); ok {
-		code, err := strconv.Atoi(realErr.Code)
+		code, err := strconv.Atoi(StringValue(realErr.Code))
 		if err != nil {
 			return true
 		}
@@ -891,28 +892,28 @@ func isFilterType(realType string, filterTypes []string) bool {
 	return false
 }
 
-func TransInterfaceToBool(val interface{}) bool {
+func TransInterfaceToBool(val interface{}) *bool {
 	if val == nil {
-		return false
+		return nil
 	}
 
-	return val.(bool)
+	return Bool(val.(bool))
 }
 
-func TransInterfaceToInt(val interface{}) int {
+func TransInterfaceToInt(val interface{}) *int {
 	if val == nil {
-		return 0
+		return nil
 	}
 
-	return val.(int)
+	return Int(val.(int))
 }
 
-func TransInterfaceToString(val interface{}) string {
+func TransInterfaceToString(val interface{}) *string {
 	if val == nil {
-		return ""
+		return nil
 	}
 
-	return val.(string)
+	return String(val.(string))
 }
 
 func Prettify(i interface{}) string {

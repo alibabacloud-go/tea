@@ -78,7 +78,7 @@ func mockResponse(statusCode int, content string, mockerr error) (res *http.Resp
 }
 
 func TestCastError(t *testing.T) {
-	err := NewCastError("cast error")
+	err := NewCastError(String("cast error"))
 	utils.AssertEqual(t, "cast error", err.Error())
 }
 
@@ -123,10 +123,10 @@ func TestConvertType(t *testing.T) {
 
 func TestRuntimeObject(t *testing.T) {
 	runtimeobject := NewRuntimeObject(nil)
-	utils.AssertEqual(t, runtimeobject.IgnoreSSL, false)
+	utils.AssertNil(t, runtimeobject.IgnoreSSL)
 
 	runtimeobject = NewRuntimeObject(runtimeObj)
-	utils.AssertEqual(t, false, runtimeobject.IgnoreSSL)
+	utils.AssertEqual(t, false, BoolValue(runtimeobject.IgnoreSSL))
 }
 
 func TestSDKError(t *testing.T) {
@@ -228,19 +228,19 @@ func TestToMap(t *testing.T) {
 	valid := &Test{
 		Msg: String("tea"),
 		Cast: &CastError{
-			Message: "message",
+			Message: String("message"),
 		},
 		ListPtr: StringSlice([]string{"test", ""}),
 		List:    []string{"list"},
 		CastListPtr: []*CastError{
 			&CastError{
-				Message: "CastListPtr",
+				Message: String("CastListPtr"),
 			},
 			nil,
 		},
 		CastList: []CastError{
 			CastError{
-				Message: "CastList",
+				Message: String("CastList"),
 			},
 		},
 	}
@@ -343,8 +343,8 @@ func Test_DoRequest(t *testing.T) {
 
 	request.Method = String("")
 	request.Protocol = String("https")
-	request.Query = map[string]string{
-		"tea": "test",
+	request.Query = map[string]*string{
+		"tea": String("test"),
 	}
 	runtimeObj["httpsProxy"] = "# #%gfdf"
 	resp, err = DoRequest(request, runtimeObj)
@@ -352,13 +352,13 @@ func Test_DoRequest(t *testing.T) {
 	utils.AssertEqual(t, `parse # #%gfdf: invalid URL escape "%gf"`, err.Error())
 
 	request.Pathname = String("?log")
-	request.Headers["tea"] = ""
+	request.Headers["tea"] = String("")
 	runtimeObj["httpsProxy"] = "http://someuser:somepassword@ecs.aliyun.com"
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `Internal error`, err.Error())
 
-	request.Headers["host"] = "tea-cn-hangzhou.aliyuncs.com:80"
+	request.Headers["host"] = String("tea-cn-hangzhou.aliyuncs.com:80")
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `Internal error`, err.Error())
@@ -377,7 +377,7 @@ func Test_DoRequest(t *testing.T) {
 	runtimeObj["localAddr"] = "127.0.0.1"
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, err)
-	utils.AssertEqual(t, "test", resp.Headers["tea"])
+	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
 }
 
 func Test_DoRequestWithConcurrent(t *testing.T) {
@@ -427,13 +427,13 @@ func Test_getHttpProxy(t *testing.T) {
 		os.Setenv("no_proxy", originnoproxy)
 	}()
 	runtime := &RuntimeObject{
-		NoProxy: "www.aliyun.com",
+		NoProxy: String("www.aliyun.com"),
 	}
 	proxy, err := getHttpProxy("http", "www.aliyun.com", runtime)
 	utils.AssertNil(t, proxy)
 	utils.AssertNil(t, err)
 
-	runtime.NoProxy = ""
+	runtime.NoProxy = nil
 	os.Setenv("no_proxy", "tea")
 	os.Setenv("http_proxy", "tea.aliyun.com")
 	proxy, err = getHttpProxy("http", "www.aliyun.com", runtime)
@@ -446,7 +446,7 @@ func Test_getHttpProxy(t *testing.T) {
 	utils.AssertEqual(t, "tea1.aliyun.com", proxy.Path)
 	utils.AssertNil(t, err)
 
-	runtime.HttpProxy = "tea2.aliyun.com"
+	runtime.HttpProxy = String("tea2.aliyun.com")
 	proxy, err = getHttpProxy("http", "www.aliyun.com", runtime)
 	utils.AssertEqual(t, "tea2.aliyun.com", proxy.Path)
 	utils.AssertNil(t, err)
@@ -473,7 +473,7 @@ func Test_SetDialContext(t *testing.T) {
 	utils.AssertNil(t, c)
 	utils.AssertEqual(t, "dial 127.0.0.1: unknown network 127.0.0.1", err.Error())
 
-	runtime.LocalAddr = "127.0.0.1"
+	runtime.LocalAddr = String("127.0.0.1")
 	c, err = dialcontext(ctx, "127.0.0.1", "127.0.0.2")
 	utils.AssertNil(t, c)
 	utils.AssertEqual(t, "dial 127.0.0.1: unknown network 127.0.0.1", err.Error())
