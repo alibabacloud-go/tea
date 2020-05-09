@@ -322,7 +322,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 
 	response = NewResponse(res)
 	fieldMap["{code}"] = strconv.Itoa(res.StatusCode)
-	fieldMap["{res_headers}"] = TransToString(res.Header)
+	fieldMap["{res_headers}"] = transToString(res.Header)
 	debugLog("< HTTP/1.1 %s", res.Status)
 	for key, value := range res.Header {
 		debugLog("< %s: %s", key, strings.Join(value, ""))
@@ -382,7 +382,7 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 	return trans, nil
 }
 
-func TransToString(object interface{}) string {
+func transToString(object interface{}) string {
 	byt, _ := json.Marshal(object)
 	return string(byt)
 }
@@ -395,7 +395,7 @@ func putMsgToMap(fieldMap map[string]string, request *http.Request) {
 	fieldMap["{version}"] = strings.Split(request.Proto, "/")[1]
 	hostname, _ := os.Hostname()
 	fieldMap["{hostname}"] = hostname
-	fieldMap["{req_headers}"] = TransToString(request.Header)
+	fieldMap["{req_headers}"] = transToString(request.Header)
 	fieldMap["{target}"] = request.URL.Path + request.URL.RawQuery
 }
 
@@ -414,8 +414,9 @@ func getNoProxy(protocol string, runtime *RuntimeObject) []string {
 
 func ToReader(obj interface{}) io.Reader {
 	switch obj.(type) {
-	case string:
-		return strings.NewReader(obj.(string))
+	case *string:
+		tmp := obj.(*string)
+		return strings.NewReader(StringValue(tmp))
 	case []byte:
 		return strings.NewReader(string(obj.([]byte)))
 	case io.Reader:
@@ -509,34 +510,34 @@ func ToObject(obj interface{}) map[string]interface{} {
 	return result
 }
 
-func AllowRetry(retry interface{}, retryTimes int) bool {
-	if retryTimes == 0 {
-		return true
+func AllowRetry(retry interface{}, retryTimes *int) *bool {
+	if IntValue(retryTimes) == 0 {
+		return Bool(true)
 	}
 	retryMap, ok := retry.(map[string]interface{})
 	if !ok {
-		return false
+		return Bool(false)
 	}
 	retryable, ok := retryMap["retryable"].(bool)
 	if !ok || !retryable {
-		return false
+		return Bool(false)
 	}
 
 	maxAttempts, ok := retryMap["maxAttempts"].(int)
-	if !ok || maxAttempts < retryTimes {
-		return false
+	if !ok || maxAttempts < IntValue(retryTimes) {
+		return Bool(false)
 	}
-	return true
+	return Bool(true)
 }
 
-func Merge(args ...interface{}) map[string]string {
-	finalArg := make(map[string]string)
+func Merge(args ...interface{}) map[string]*string {
+	finalArg := make(map[string]*string)
 	for _, obj := range args {
 		switch obj.(type) {
-		case map[string]string:
-			arg := obj.(map[string]string)
+		case map[string]*string:
+			arg := obj.(map[string]*string)
 			for key, value := range arg {
-				if value != "" {
+				if value != nil {
 					finalArg[key] = value
 				}
 			}
@@ -549,7 +550,7 @@ func Merge(args ...interface{}) map[string]string {
 			}
 			for key, value := range arg {
 				if value != "" {
-					finalArg[key] = value
+					finalArg[key] = String(value)
 				}
 			}
 		}
@@ -580,11 +581,11 @@ func ToMap(args ...interface{}) map[string]interface{} {
 		isNotNil = true
 
 		switch obj.(type) {
-		case map[string]string:
-			arg := obj.(map[string]string)
+		case map[string]*string:
+			arg := obj.(map[string]*string)
 			for key, value := range arg {
-				if value != "" {
-					finalArg[key] = value
+				if value != nil {
+					finalArg[key] = StringValue(value)
 				}
 			}
 		case map[string]interface{}:
@@ -594,10 +595,10 @@ func ToMap(args ...interface{}) map[string]interface{} {
 					finalArg[key] = value
 				}
 			}
-		case string:
-			str := obj.(string)
+		case *string:
+			str := obj.(*string)
 			arg := make(map[string]interface{})
-			err := json.Unmarshal([]byte(str), &arg)
+			err := json.Unmarshal([]byte(StringValue(str)), &arg)
 			if err == nil {
 				for key, value := range arg {
 					if value != nil {
@@ -606,7 +607,7 @@ func ToMap(args ...interface{}) map[string]interface{} {
 				}
 			}
 			tmp := make(map[string]string)
-			err = json.Unmarshal([]byte(str), &tmp)
+			err = json.Unmarshal([]byte(StringValue(str)), &tmp)
 			if err == nil {
 				for key, value := range arg {
 					if value != "" {
@@ -713,41 +714,41 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 	return out
 }
 
-func Retryable(err error) bool {
+func Retryable(err error) *bool {
 	if err == nil {
-		return false
+		return Bool(false)
 	}
 	if realErr, ok := err.(*SDKError); ok {
 		code, err := strconv.Atoi(StringValue(realErr.Code))
 		if err != nil {
-			return true
+			return Bool(true)
 		}
-		return code >= http.StatusInternalServerError
+		return Bool(code >= http.StatusInternalServerError)
 	}
-	return true
+	return Bool(true)
 }
 
-func GetBackoffTime(backoff interface{}, retrytimes int) int {
+func GetBackoffTime(backoff interface{}, retrytimes *int) *int {
 	backoffMap, ok := backoff.(map[string]interface{})
 	if !ok {
-		return 0
+		return Int(0)
 	}
 	policy, ok := backoffMap["policy"].(string)
 	if !ok || policy == "no" {
-		return 0
+		return Int(0)
 	}
 
 	period, ok := backoffMap["period"].(int)
 	if !ok || period == 0 {
-		return 0
+		return Int(0)
 	}
 
-	maxTime := math.Pow(2.0, float64(retrytimes))
-	return rand.Intn(int(maxTime-1)) * period
+	maxTime := math.Pow(2.0, float64(IntValue(retrytimes)))
+	return Int(rand.Intn(int(maxTime-1)) * period)
 }
 
-func Sleep(backoffTime int) {
-	sleeptime := time.Duration(backoffTime) * time.Second
+func Sleep(backoffTime *int) {
+	sleeptime := time.Duration(IntValue(backoffTime)) * time.Second
 	time.Sleep(sleeptime)
 }
 
