@@ -165,42 +165,42 @@ func TestToObject(t *testing.T) {
 }
 
 func TestAllowRetry(t *testing.T) {
-	allow := AllowRetry(nil, 0)
-	utils.AssertEqual(t, true, allow)
+	allow := AllowRetry(nil, Int(0))
+	utils.AssertEqual(t, true, BoolValue(allow))
 
-	allow = AllowRetry(nil, 1)
-	utils.AssertEqual(t, false, allow)
+	allow = AllowRetry(nil, Int(1))
+	utils.AssertEqual(t, false, BoolValue(allow))
 
 	input := map[string]interface{}{
 		"retryable":   false,
 		"maxAttempts": 2,
 	}
-	allow = AllowRetry(input, 1)
-	utils.AssertEqual(t, false, allow)
+	allow = AllowRetry(input, Int(1))
+	utils.AssertEqual(t, false, BoolValue(allow))
 
 	input["retryable"] = true
-	allow = AllowRetry(input, 3)
-	utils.AssertEqual(t, false, allow)
+	allow = AllowRetry(input, Int(3))
+	utils.AssertEqual(t, false, BoolValue(allow))
 
 	input["retryable"] = true
-	allow = AllowRetry(input, 1)
-	utils.AssertEqual(t, true, allow)
+	allow = AllowRetry(input, Int(1))
+	utils.AssertEqual(t, true, BoolValue(allow))
 }
 
 func TestMerge(t *testing.T) {
-	in := map[string]string{
-		"tea": "test",
+	in := map[string]*string{
+		"tea": String("test"),
 	}
 	valid := map[string]interface{}{
 		"valid": "test",
 	}
 	invalidStr := "sdfdg"
 	result := Merge(in, valid, invalidStr)
-	utils.AssertEqual(t, "test", result["tea"])
-	utils.AssertEqual(t, "test", result["valid"])
+	utils.AssertEqual(t, "test", StringValue(result["tea"]))
+	utils.AssertEqual(t, "test", StringValue(result["valid"]))
 
 	result = Merge(nil)
-	utils.AssertEqual(t, map[string]string{}, result)
+	utils.AssertEqual(t, map[string]*string{}, result)
 }
 
 type Test struct {
@@ -213,8 +213,8 @@ type Test struct {
 }
 
 func TestToMap(t *testing.T) {
-	in := map[string]string{
-		"tea": "test",
+	in := map[string]*string{
+		"tea": String("test"),
 	}
 	result := ToMap(in)
 	utils.AssertEqual(t, "test", result["tea"])
@@ -258,18 +258,18 @@ func TestToMap(t *testing.T) {
 	result = ToMap(valid1)
 	utils.AssertEqual(t, "tea", result["Msg"])
 
-	validStr := `{"test":"ok"}`
+	validStr := String(`{"test":"ok"}`)
 	result = ToMap(validStr)
 	utils.AssertEqual(t, "ok", result["test"])
 
-	validStr1 := `{"test":"ok","num":1}`
+	validStr1 := String(`{"test":"ok","num":1}`)
 	result = ToMap(validStr1)
 	utils.AssertEqual(t, "ok", result["test"])
 
-	result = ToMap([]byte(validStr))
+	result = ToMap([]byte(StringValue(validStr)))
 	utils.AssertEqual(t, "ok", result["test"])
 
-	result = ToMap([]byte(validStr1))
+	result = ToMap([]byte(StringValue(validStr1)))
 	utils.AssertEqual(t, "ok", result["test"])
 
 	invalidStr := "sdfdg"
@@ -285,45 +285,45 @@ func TestToMap(t *testing.T) {
 
 func Test_Retryable(t *testing.T) {
 	ifRetry := Retryable(nil)
-	utils.AssertEqual(t, false, ifRetry)
+	utils.AssertEqual(t, false, BoolValue(ifRetry))
 
 	err := errors.New("tea")
 	ifRetry = Retryable(err)
-	utils.AssertEqual(t, true, ifRetry)
+	utils.AssertEqual(t, true, BoolValue(ifRetry))
 
 	errmsg := map[string]interface{}{
 		"code": "err",
 	}
 	err = NewSDKError(errmsg)
 	ifRetry = Retryable(err)
-	utils.AssertEqual(t, true, ifRetry)
+	utils.AssertEqual(t, true, BoolValue(ifRetry))
 
 	errmsg["code"] = "400"
 	err = NewSDKError(errmsg)
 	ifRetry = Retryable(err)
-	utils.AssertEqual(t, false, ifRetry)
+	utils.AssertEqual(t, false, BoolValue(ifRetry))
 }
 
 func Test_GetBackoffTime(t *testing.T) {
-	ms := GetBackoffTime(nil, 0)
-	utils.AssertEqual(t, 0, ms)
+	ms := GetBackoffTime(nil, Int(0))
+	utils.AssertEqual(t, 0, IntValue(ms))
 
 	backoff := map[string]interface{}{
 		"policy": "no",
 	}
-	ms = GetBackoffTime(backoff, 0)
-	utils.AssertEqual(t, 0, ms)
+	ms = GetBackoffTime(backoff, Int(0))
+	utils.AssertEqual(t, 0, IntValue(ms))
 
 	backoff["policy"] = "yes"
 	backoff["period"] = 0
-	ms = GetBackoffTime(backoff, 1)
-	utils.AssertEqual(t, 0, ms)
+	ms = GetBackoffTime(backoff, Int(1))
+	utils.AssertEqual(t, 0, IntValue(ms))
 
-	Sleep(1)
+	Sleep(Int(1))
 
 	backoff["period"] = 3
-	ms = GetBackoffTime(backoff, 1)
-	utils.AssertEqual(t, true, ms <= 3)
+	ms = GetBackoffTime(backoff, Int(1))
+	utils.AssertEqual(t, true, IntValue(ms) <= 3)
 }
 
 func Test_DoRequest(t *testing.T) {
@@ -491,7 +491,7 @@ func Test_hookdo(t *testing.T) {
 
 func Test_ToReader(t *testing.T) {
 	str := "abc"
-	reader := ToReader(str)
+	reader := ToReader(String(str))
 	byt, err := ioutil.ReadAll(reader)
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "abc", string(byt))
