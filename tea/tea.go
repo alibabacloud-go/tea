@@ -296,7 +296,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 		} else {
 			httpRequest.Header[key] = []string{*value}
 		}
-		debugLog("> %s: %s", key, value)
+		debugLog("> %s: %s", key, StringValue(value))
 	}
 	contentlength, _ := strconv.Atoi(StringValue(request.Headers["content-length"]))
 	event := utils.NewProgressEvent(utils.TransferStartedEvent, 0, int64(contentlength), 0)
@@ -351,7 +351,7 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 			req.Headers["Proxy-Authorization"] = String(basic)
 		}
 	}
-	if runtime.Socks5Proxy != nil {
+	if runtime.Socks5Proxy != nil && StringValue(runtime.Socks5Proxy) != "" {
 		socks5Proxy, err := getSocks5Proxy(runtime)
 		if err != nil {
 			return nil, err
@@ -401,7 +401,7 @@ func putMsgToMap(fieldMap map[string]string, request *http.Request) {
 
 func getNoProxy(protocol string, runtime *RuntimeObject) []string {
 	var urls []string
-	if runtime.NoProxy != nil {
+	if runtime.NoProxy != nil && StringValue(runtime.NoProxy) != "" {
 		urls = strings.Split(StringValue(runtime.NoProxy), ",")
 	} else if rawurl := os.Getenv("NO_PROXY"); rawurl != "" {
 		urls = strings.Split(rawurl, ",")
@@ -438,7 +438,7 @@ func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL
 		}
 	}
 	if protocol == "https" {
-		if runtime.HttpsProxy != nil {
+		if runtime.HttpsProxy != nil && StringValue(runtime.HttpsProxy) != "" {
 			proxy, err = url.Parse(StringValue(runtime.HttpsProxy))
 		} else if rawurl := os.Getenv("HTTPS_PROXY"); rawurl != "" {
 			proxy, err = url.Parse(rawurl)
@@ -446,7 +446,7 @@ func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL
 			proxy, err = url.Parse(rawurl)
 		}
 	} else {
-		if runtime.HttpProxy != nil {
+		if runtime.HttpProxy != nil && StringValue(runtime.HttpProxy) != "" {
 			proxy, err = url.Parse(StringValue(runtime.HttpProxy))
 		} else if rawurl := os.Getenv("HTTP_PROXY"); rawurl != "" {
 			proxy, err = url.Parse(rawurl)
@@ -459,7 +459,7 @@ func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL
 }
 
 func getSocks5Proxy(runtime *RuntimeObject) (proxy *url.URL, err error) {
-	if runtime.Socks5Proxy != nil {
+	if runtime.Socks5Proxy != nil && StringValue(runtime.Socks5Proxy) != "" {
 		proxy, err = url.Parse(StringValue(runtime.Socks5Proxy))
 	}
 	return proxy, err
@@ -477,7 +477,7 @@ func getLocalAddr(localAddr string, port int) (addr *net.TCPAddr) {
 
 func setDialContext(runtime *RuntimeObject, port int) func(cxt context.Context, net, addr string) (c net.Conn, err error) {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
-		if runtime.LocalAddr != nil {
+		if runtime.LocalAddr != nil && StringValue(runtime.LocalAddr) != "" {
 			netAddr := &net.TCPAddr{
 				Port: port,
 				IP:   []byte(StringValue(runtime.LocalAddr)),
