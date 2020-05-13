@@ -46,15 +46,32 @@ var runtimeObj = map[string]interface{}{
 }
 
 type validateTest struct {
-	Num  *int       `json:"num" require:"true"`
-	Name *string    `json:"name" maxLength:"4"`
-	Str  *string    `json:"str" pattern:"^[a-d]*$" maxLength:"4"`
-	Test *errLength `json:"test"`
-	List []*string  `json:"list" pattern:"^[a-d]*$" maxLength:"4"`
+	Num1      *int          `json:"num1" require:"true" minimum:"2"`
+	Num2      *int          `json:"num2" maximum:"6"`
+	Name1     *string       `json:"name1" maxLength:"4"`
+	Name2     *string       `json:"name2" minLength:"2"`
+	Str       *string       `json:"str" pattern:"^[a-d]*$" maxLength:"4"`
+	MaxLength *errMaxLength `json:"MaxLength"`
+	MinLength *errMinLength `json:"MinLength"`
+	Maximum   *errMaximum   `json:"Maximum"`
+	Minimum   *errMinimum   `json:"Minimum"`
+	List      []*string     `json:"list" pattern:"^[a-d]*$" maxLength:"4"`
 }
 
-type errLength struct {
+type errMaxLength struct {
 	Num *int `json:"num" maxLength:"a"`
+}
+
+type errMinLength struct {
+	Num *int `json:"num" minLength:"a"`
+}
+
+type errMaximum struct {
+	Num *int `json:"num" maximum:"a"`
+}
+
+type errMinimum struct {
+	Num *int `json:"num" minimum:"a"`
 }
 
 type Progresstest struct {
@@ -528,9 +545,9 @@ func Test_ToString(t *testing.T) {
 }
 
 func Test_Validate(t *testing.T) {
-	num := 1
+	num := 3
 	config := &validateTest{
-		Num: &num,
+		Num1: &num,
 	}
 	err := Validate(config)
 	utils.AssertNil(t, err)
@@ -541,10 +558,11 @@ func Test_validate(t *testing.T) {
 	err := validate(reflect.ValueOf(test))
 	utils.AssertNil(t, err)
 
-	num := 1
+	num := 3
 	str0, str1 := "abc", "abcddd"
 	val := &validateTest{
-		Num:  &num,
+		Num1: &num,
+		Num2: &num,
 		Str:  &str0,
 		List: []*string{&str0},
 	}
@@ -556,15 +574,15 @@ func Test_validate(t *testing.T) {
 	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, "Length of abcddd is more than 4", err.Error())
 
-	val.Num = nil
+	val.Num1 = nil
 	err = validate(reflect.ValueOf(val))
-	utils.AssertEqual(t, "num should be setted", err.Error())
+	utils.AssertEqual(t, "num1 should be setted", err.Error())
 
-	val.Name = String("最大长度")
+	val.Name1 = String("最大长度")
 	err = validate(reflect.ValueOf(val))
-	utils.AssertEqual(t, "num should be setted", err.Error())
+	utils.AssertEqual(t, "num1 should be setted", err.Error())
 
-	val.Num = &num
+	val.Num1 = &num
 	val.Str = &str0
 	val.List = []*string{&str1}
 	err = validate(reflect.ValueOf(val))
@@ -581,11 +599,52 @@ func Test_validate(t *testing.T) {
 
 	val.Str = &str0
 	val.List = []*string{&str0}
-	val.Test = &errLength{
+	val.MaxLength = &errMaxLength{
 		Num: &num,
 	}
 	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, `strconv.Atoi: parsing "a": invalid syntax`, err.Error())
+
+	val.MaxLength = nil
+	val.MinLength = &errMinLength{
+		Num: &num,
+	}
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, `strconv.Atoi: parsing "a": invalid syntax`, err.Error())
+
+	val.MinLength = nil
+	val.Maximum = &errMaximum{
+		Num: &num,
+	}
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, `strconv.ParseFloat: parsing "a": invalid syntax`, err.Error())
+
+	val.Maximum = nil
+	val.Minimum = &errMinimum{
+		Num: &num,
+	}
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, `strconv.ParseFloat: parsing "a": invalid syntax`, err.Error())
+
+	val.Minimum = nil
+	val.Num2 = Int(10)
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, `10.000000 is greater than 6.000000`, err.Error())
+
+	val.Num2 = nil
+	val.Name1 = String("maxLengthTouch")
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, `Length of maxLengthTouch is more than 4`, err.Error())
+
+	val.Name1 = nil
+	val.Name2 = String("")
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, `Length of  is less than 2`, err.Error())
+
+	val.Name2 = nil
+	val.Num1 = Int(0)
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, `0.000000 is less than 2.000000`, err.Error())
 }
 
 func Test_Prettify(t *testing.T) {

@@ -39,7 +39,7 @@ var basicTypes = []string{
 }
 
 // Verify whether the parameters meet the requirements
-var validateParams = []string{"require", "pattern", "maxLength"}
+var validateParams = []string{"require", "pattern", "maxLength", "minLength", "maximum", "minimum"}
 
 // CastError is used for cast type fails
 type CastError struct {
@@ -837,6 +837,27 @@ func validatePtr(elementValue reflect.Value, containsregexpTag bool, tag, tagNam
 					return err
 				}
 			}
+
+			if tagName == "minLength" {
+				err := checkMinLength(elementValue.Elem(), tag)
+				if err != nil {
+					return err
+				}
+			}
+
+			if tagName == "maximum" {
+				err := checkMaximum(elementValue.Elem(), tag)
+				if err != nil {
+					return err
+				}
+			}
+
+			if tagName == "minimum" {
+				err := checkMinimum(elementValue.Elem(), tag)
+				if err != nil {
+					return err
+				}
+			}
 		}
 	} else {
 		err := validate(elementValue)
@@ -877,6 +898,63 @@ func checkMaxLength(valueField reflect.Value, tag string) error {
 		}
 		if maxLength < length {
 			errMsg := fmt.Sprintf("Length of %s is more than %d", valueField.String(), maxLength)
+			return errors.New(errMsg)
+		}
+	}
+	return nil
+}
+
+func checkMinLength(valueField reflect.Value, tag string) error {
+	if valueField.IsValid() {
+		minLength, err := strconv.Atoi(tag)
+		if err != nil {
+			return err
+		}
+		length := valueField.Len()
+		if valueField.Kind().String() == "string" {
+			length = strings.Count(valueField.String(), "") - 1
+		}
+		if minLength > length {
+			errMsg := fmt.Sprintf("Length of %s is less than %d", valueField.String(), minLength)
+			return errors.New(errMsg)
+		}
+	}
+	return nil
+}
+
+func checkMaximum(valueField reflect.Value, tag string) error {
+	if valueField.IsValid() && valueField.String() != "" {
+		maximum, err := strconv.ParseFloat(tag, 64)
+		if err != nil {
+			return err
+		}
+		byt, _ := json.Marshal(valueField.Interface())
+		num, err := strconv.ParseFloat(string(byt), 64)
+		if err != nil {
+			return err
+		}
+		if maximum < num {
+			errMsg := fmt.Sprintf("%f is greater than %f", num, maximum)
+			return errors.New(errMsg)
+		}
+	}
+	return nil
+}
+
+func checkMinimum(valueField reflect.Value, tag string) error {
+	if valueField.IsValid() && valueField.String() != "" {
+		minimum, err := strconv.ParseFloat(tag, 64)
+		if err != nil {
+			return err
+		}
+
+		byt, _ := json.Marshal(valueField.Interface())
+		num, err := strconv.ParseFloat(string(byt), 64)
+		if err != nil {
+			return err
+		}
+		if minimum > num {
+			errMsg := fmt.Sprintf("%f is less than %f", num, minimum)
 			return errors.New(errMsg)
 		}
 	}
