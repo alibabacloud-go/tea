@@ -650,6 +650,9 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 		return out
 	}
 	if dataValue.Kind().String() == "ptr" {
+		if dataValue.IsNil() {
+			return out
+		}
 		dataValue = dataValue.Elem()
 	}
 	if !dataValue.IsValid() {
@@ -664,9 +667,12 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 		name, containsNameTag := field.Tag.Lookup("json")
 		if !containsNameTag {
 			name = field.Name
+		} else {
+			strs := strings.Split(name, ",")
+			name = strs[0]
 		}
 		fieldValue := dataValue.FieldByName(field.Name)
-		if !fieldValue.IsValid() {
+		if !fieldValue.IsValid() || fieldValue.IsNil() {
 			continue
 		}
 		if field.Type.Kind().String() == "struct" {
@@ -870,6 +876,8 @@ func validatePtr(elementValue reflect.Value, containsregexpTag bool, tag, tagNam
 
 func checkRequire(field reflect.StructField, valueField reflect.Value) error {
 	name, _ := field.Tag.Lookup("json")
+	strs := strings.Split(name, ",")
+	name = strs[0]
 	if !valueField.IsNil() && valueField.IsValid() {
 		return nil
 	}

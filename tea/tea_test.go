@@ -18,8 +18,8 @@ import (
 )
 
 type test struct {
-	Key  string `json:"key"`
-	Body []byte `json:"body"`
+	Key  string `json:"key,omitempty"`
+	Body []byte `json:"body,omitempty"`
 }
 
 type PrettifyTest struct {
@@ -46,16 +46,16 @@ var runtimeObj = map[string]interface{}{
 }
 
 type validateTest struct {
-	Num1      *int          `json:"num1" require:"true" minimum:"2"`
-	Num2      *int          `json:"num2" maximum:"6"`
-	Name1     *string       `json:"name1" maxLength:"4"`
-	Name2     *string       `json:"name2" minLength:"2"`
-	Str       *string       `json:"str" pattern:"^[a-d]*$" maxLength:"4"`
-	MaxLength *errMaxLength `json:"MaxLength"`
-	MinLength *errMinLength `json:"MinLength"`
-	Maximum   *errMaximum   `json:"Maximum"`
-	Minimum   *errMinimum   `json:"Minimum"`
-	List      []*string     `json:"list" pattern:"^[a-d]*$" maxLength:"4"`
+	Num1      *int          `json:"num1,omitempty" require:"true" minimum:"2"`
+	Num2      *int          `json:"num2,omitempty" maximum:"6"`
+	Name1     *string       `json:"name1,omitempty" maxLength:"4"`
+	Name2     *string       `json:"name2,omitempty" minLength:"2"`
+	Str       *string       `json:"str,omitempty" pattern:"^[a-d]*$" maxLength:"4"`
+	MaxLength *errMaxLength `json:"MaxLength,omitempty"`
+	MinLength *errMinLength `json:"MinLength,omitempty"`
+	Maximum   *errMaximum   `json:"Maximum,omitempty"`
+	Minimum   *errMinimum   `json:"Minimum,omitempty"`
+	List      []*string     `json:"list,omitempty" pattern:"^[a-d]*$" maxLength:"4"`
 }
 
 type errMaxLength struct {
@@ -221,12 +221,12 @@ func TestMerge(t *testing.T) {
 }
 
 type Test struct {
-	Msg         *string      `json:"Msg"`
-	Cast        *CastError   `json:"Cast"`
-	ListPtr     []*string    `json:"ListPtr"`
-	List        []string     `json:"List"`
-	CastList    []CastError  `json:"CastList"`
-	CastListPtr []*CastError `json:"CastListPtr"`
+	Msg         *string      `json:"Msg,omitempty"`
+	Cast        *CastError   `json:"Cast,omitempty"`
+	ListPtr     []*string    `json:"ListPtr,omitempty"`
+	List        []string     `json:"List,omitempty"`
+	CastList    []CastError  `json:"CastList,omitempty"`
+	CastListPtr []*CastError `json:"CastListPtr,omitempty"`
 }
 
 func TestToMap(t *testing.T) {
@@ -366,7 +366,7 @@ func Test_DoRequest(t *testing.T) {
 	runtimeObj["httpsProxy"] = "# #%gfdf"
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, resp)
-	utils.AssertEqual(t, `parse # #%gfdf: invalid URL escape "%gf"`, err.Error())
+	utils.AssertContains(t, err.Error(), `invalid URL escape "%gf"`)
 
 	request.Pathname = String("?log")
 	request.Headers["tea"] = String("")
@@ -383,7 +383,7 @@ func Test_DoRequest(t *testing.T) {
 	runtimeObj["socks5Proxy"] = "# #%gfdf"
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, resp)
-	utils.AssertEqual(t, `parse # #%gfdf: invalid URL escape "%gf"`, err.Error())
+	utils.AssertContains(t, err.Error(), ` invalid URL escape "%gf"`)
 
 	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
 		return func(req *http.Request) (*http.Response, error) {
