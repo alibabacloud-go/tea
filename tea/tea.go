@@ -180,6 +180,7 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 	return err
 }
 
+// Set ErrMsg by msg
 func (err *SDKError) SetErrMsg(msg string) {
 	err.errMsg = String(msg)
 }
@@ -203,6 +204,14 @@ func Convert(in interface{}, out interface{}) error {
 	byt, _ := json.Marshal(in)
 	err := json.Unmarshal(byt, out)
 	return err
+}
+
+// Convert is use convert map[string]interface object to struct
+func Recover(in interface{}) error {
+	if in == nil {
+		return nil
+	}
+	return errors.New(fmt.Sprint(in))
 }
 
 // ReadBody is used read response body

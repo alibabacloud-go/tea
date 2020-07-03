@@ -158,6 +158,9 @@ func TestSDKError(t *testing.T) {
 	})
 	utils.AssertNotNil(t, err)
 	utils.AssertEqual(t, "SDKError:\n   Code: code\n   Message: message\n   Data: {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"requestId\":\"dfadfa32cgfdcasd4313\"}\n", err.Error())
+
+	err.SetErrMsg("test")
+	utils.AssertEqual(t, "test", err.Error())
 }
 
 func TestSDKErrorCode404(t *testing.T) {
@@ -551,6 +554,17 @@ func Test_Validate(t *testing.T) {
 	}
 	err := Validate(config)
 	utils.AssertNil(t, err)
+}
+
+func Test_Recover(t *testing.T) {
+	err := Recover(nil)
+	utils.AssertNil(t, err)
+	defer func() {
+		if r := Recover(recover()); r != nil {
+			utils.AssertEqual(t, "test", r.Error())
+		}
+	}()
+	panic("test")
 }
 
 func Test_validate(t *testing.T) {
