@@ -71,6 +71,8 @@ type SDKError struct {
 	Code    *string
 	Message *string
 	Data    *string
+	Stack   *string
+	errMsg  *string
 }
 
 // RuntimeObject is used for converting http configuration
@@ -176,6 +178,19 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 		err.Data = String(string(byt))
 	}
 	return err
+}
+
+func (err *SDKError) SetErrMsg(msg string) {
+	err.errMsg = String(msg)
+}
+
+func (err *SDKError) Error() string {
+	if err.errMsg == nil {
+		str := fmt.Sprintf("SDKError:\n   Code: %s\n   Message: %s\n   Data: %s\n",
+			StringValue(err.Code), StringValue(err.Message), StringValue(err.Data))
+		err.SetErrMsg(str)
+	}
+	return StringValue(err.errMsg)
 }
 
 // Return message of CastError
@@ -493,11 +508,6 @@ func setDialContext(runtime *RuntimeObject, port int) func(cxt context.Context, 
 			DualStack: true,
 		}).DialContext(ctx, network, address)
 	}
-}
-
-func (err *SDKError) Error() string {
-	return fmt.Sprintf("SDKError:\n   Code: %s\n   Message: %s\n   Data: %s\n",
-		StringValue(err.Code), StringValue(err.Message), StringValue(err.Data))
 }
 
 func ToObject(obj interface{}) map[string]interface{} {
