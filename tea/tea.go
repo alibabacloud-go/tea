@@ -307,7 +307,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 		if err != nil {
 			return nil, err
 		}
-		client.httpClient.Timeout = time.Duration(IntValue(runtimeObject.ConnectTimeout)) * time.Second
+		client.httpClient.Timeout = time.Duration(IntValue(runtimeObject.ReadTimeout)) * time.Millisecond
 		client.httpClient.Transport = trans
 		client.ifInit = true
 	}
@@ -391,7 +391,7 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 			}
 			dialer, err := proxy.SOCKS5(strings.ToLower(StringValue(runtime.Socks5NetWork)), socks5Proxy.String(), auth,
 				&net.Dialer{
-					Timeout:   time.Duration(IntValue(runtime.ConnectTimeout)) * time.Second,
+					Timeout:   time.Duration(IntValue(runtime.ConnectTimeout)) * time.Millisecond,
 					DualStack: true,
 					LocalAddr: getLocalAddr(StringValue(runtime.LocalAddr), IntValue(req.Port)),
 				})
