@@ -778,8 +778,14 @@ func Sleep(backoffTime *int) {
 }
 
 func Validate(params interface{}) error {
-	requestValue := reflect.ValueOf(params).Elem()
-	err := validate(requestValue)
+	if params == nil {
+		return nil
+	}
+	requestValue := reflect.ValueOf(params)
+	if requestValue.IsNil() || requestValue.IsZero() {
+		return nil
+	}
+	err := validate(requestValue.Elem())
 	return err
 }
 

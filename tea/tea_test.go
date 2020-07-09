@@ -554,6 +554,12 @@ func Test_Validate(t *testing.T) {
 	}
 	err := Validate(config)
 	utils.AssertNil(t, err)
+
+	err = Validate(new(validateTest))
+	utils.AssertEqual(t, err.Error(), "num1 should be setted")
+
+	err = Validate(nil)
+	utils.AssertNil(t, err)
 }
 
 func Test_Recover(t *testing.T) {
