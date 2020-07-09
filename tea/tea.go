@@ -782,7 +782,7 @@ func Validate(params interface{}) error {
 		return nil
 	}
 	requestValue := reflect.ValueOf(params)
-	if requestValue.IsNil() || requestValue.IsZero() {
+	if requestValue.IsNil() {
 		return nil
 	}
 	err := validate(requestValue.Elem())
