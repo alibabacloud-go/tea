@@ -373,6 +373,7 @@ func Test_DoRequest(t *testing.T) {
 
 	request.Pathname = String("?log")
 	request.Headers["tea"] = String("")
+	request.Headers["content-length"] = nil
 	runtimeObj["httpsProxy"] = "http://someuser:somepassword@ecs.aliyun.com"
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, resp)
@@ -557,6 +558,10 @@ func Test_Validate(t *testing.T) {
 
 	err = Validate(new(validateTest))
 	utils.AssertEqual(t, err.Error(), "num1 should be setted")
+
+	var tmp *validateTest
+	err = Validate(tmp)
+	utils.AssertNil(t, err)
 
 	err = Validate(nil)
 	utils.AssertNil(t, err)
