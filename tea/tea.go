@@ -39,7 +39,7 @@ var basicTypes = []string{
 }
 
 // Verify whether the parameters meet the requirements
-var validateParams = []string{"require", "pattern", "maxLength", "minLength", "maximum", "minimum"}
+var validateParams = []string{"require", "pattern", "maxLength", "minLength", "maximum", "minimum", "maxItems", "minItems"}
 
 // CastError is used for cast type fails
 type CastError struct {
@@ -820,12 +820,12 @@ func validateParam(field reflect.StructField, valueField reflect.Value, tagName 
 		}
 	}
 	if strings.HasPrefix(field.Type.String(), "[]") { // Verify the parameters of the array type
-		err := validateSlice(valueField, containsTag, tag, tagName)
+		err := validateSlice(field, valueField, containsTag, tag, tagName)
 		if err != nil {
 			return err
 		}
 	} else if valueField.Kind() == reflect.Ptr { // Determines whether it is a pointer object
-		err := validatePtr(valueField, containsTag, tag, tagName)
+		err := validatePtr(field, valueField, containsTag, tag, tagName)
 		if err != nil {
 			return err
 		}
@@ -833,12 +833,28 @@ func validateParam(field reflect.StructField, valueField reflect.Value, tagName 
 	return nil
 }
 
-func validateSlice(valueField reflect.Value, containsregexpTag bool, tag, tagName string) error {
+func validateSlice(field reflect.StructField, valueField reflect.Value, containsregexpTag bool, tag, tagName string) error {
 	if valueField.IsValid() && !valueField.IsNil() { // Determines whether the parameter has a value
+		if containsregexpTag {
+			if tagName == "maxItems" {
+				err := checkMaxItems(field, valueField, tag)
+				if err != nil {
+					return err
+				}
+			}
+
+			if tagName == "minItems" {
+				err := checkMinItems(field, valueField, tag)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
 		for m := 0; m < valueField.Len(); m++ {
 			elementValue := valueField.Index(m)
 			if elementValue.Type().Kind() == reflect.Ptr { // Determines whether the child elements of an array are of a basic type
-				err := validatePtr(elementValue, containsregexpTag, tag, tagName)
+				err := validatePtr(field, elementValue, containsregexpTag, tag, tagName)
 				if err != nil {
 					return err
 				}
@@ -848,43 +864,42 @@ func validateSlice(valueField reflect.Value, containsregexpTag bool, tag, tagNam
 	return nil
 }
 
-func validatePtr(elementValue reflect.Value, containsregexpTag bool, tag, tagName string) error {
+func validatePtr(field reflect.StructField, elementValue reflect.Value, containsregexpTag bool, tag, tagName string) error {
 	if elementValue.IsNil() {
 		return nil
 	}
-
 	if isFilterType(elementValue.Elem().Type().String(), basicTypes) {
 		if containsregexpTag {
 			if tagName == "pattern" {
-				err := checkPattern(elementValue.Elem(), tag)
+				err := checkPattern(field, elementValue.Elem(), tag)
 				if err != nil {
 					return err
 				}
 			}
 
 			if tagName == "maxLength" {
-				err := checkMaxLength(elementValue.Elem(), tag)
+				err := checkMaxLength(field, elementValue.Elem(), tag)
 				if err != nil {
 					return err
 				}
 			}
 
 			if tagName == "minLength" {
-				err := checkMinLength(elementValue.Elem(), tag)
+				err := checkMinLength(field, elementValue.Elem(), tag)
 				if err != nil {
 					return err
 				}
 			}
 
 			if tagName == "maximum" {
-				err := checkMaximum(elementValue.Elem(), tag)
+				err := checkMaximum(field, elementValue.Elem(), tag)
 				if err != nil {
 					return err
 				}
 			}
 
 			if tagName == "minimum" {
-				err := checkMinimum(elementValue.Elem(), tag)
+				err := checkMinimum(field, elementValue.Elem(), tag)
 				if err != nil {
 					return err
 				}
@@ -909,7 +924,7 @@ func checkRequire(field reflect.StructField, valueField reflect.Value) error {
 	return errors.New(name + " should be setted")
 }
 
-func checkPattern(valueField reflect.Value, tag string) error {
+func checkPattern(field reflect.StructField, valueField reflect.Value, tag string) error {
 	if valueField.IsValid() && valueField.String() != "" {
 		value := valueField.String()
 		if match, _ := regexp.MatchString(tag, value); !match { // Determines whether the parameter value satisfies the regular expression or not, and throws an error
@@ -919,7 +934,37 @@ func checkPattern(valueField reflect.Value, tag string) error {
 	return nil
 }
 
-func checkMaxLength(valueField reflect.Value, tag string) error {
+func checkMaxItems(field reflect.StructField, valueField reflect.Value, tag string) error {
+	if valueField.IsValid() && valueField.String() != "" {
+		maxItems, err := strconv.Atoi(tag)
+		if err != nil {
+			return err
+		}
+		length := valueField.Len()
+		if maxItems < length {
+			errMsg := fmt.Sprintf("The length of %s is %d which is more than %d", field.Name, length, maxItems)
+			return errors.New(errMsg)
+		}
+	}
+	return nil
+}
+
+func checkMinItems(field reflect.StructField, valueField reflect.Value, tag string) error {
+	if valueField.IsValid() {
+		minItems, err := strconv.Atoi(tag)
+		if err != nil {
+			return err
+		}
+		length := valueField.Len()
+		if minItems > length {
+			errMsg := fmt.Sprintf("The length of %s is %d which is less than %d", field.Name, length, minItems)
+			return errors.New(errMsg)
+		}
+	}
+	return nil
+}
+
+func checkMaxLength(field reflect.StructField, valueField reflect.Value, tag string) error {
 	if valueField.IsValid() && valueField.String() != "" {
 		maxLength, err := strconv.Atoi(tag)
 		if err != nil {
@@ -930,14 +975,14 @@ func checkMaxLength(valueField reflect.Value, tag string) error {
 			length = strings.Count(valueField.String(), "") - 1
 		}
 		if maxLength < length {
-			errMsg := fmt.Sprintf("Length of %s is more than %d", valueField.String(), maxLength)
+			errMsg := fmt.Sprintf("The length of %s is %d which is more than %d", field.Name, length, maxLength)
 			return errors.New(errMsg)
 		}
 	}
 	return nil
 }
 
-func checkMinLength(valueField reflect.Value, tag string) error {
+func checkMinLength(field reflect.StructField, valueField reflect.Value, tag string) error {
 	if valueField.IsValid() {
 		minLength, err := strconv.Atoi(tag)
 		if err != nil {
@@ -948,14 +993,14 @@ func checkMinLength(valueField reflect.Value, tag string) error {
 			length = strings.Count(valueField.String(), "") - 1
 		}
 		if minLength > length {
-			errMsg := fmt.Sprintf("Length of %s is less than %d", valueField.String(), minLength)
+			errMsg := fmt.Sprintf("The length of %s is %d which is less than %d", field.Name, length, minLength)
 			return errors.New(errMsg)
 		}
 	}
 	return nil
 }
 
-func checkMaximum(valueField reflect.Value, tag string) error {
+func checkMaximum(field reflect.StructField, valueField reflect.Value, tag string) error {
 	if valueField.IsValid() && valueField.String() != "" {
 		maximum, err := strconv.ParseFloat(tag, 64)
 		if err != nil {
@@ -967,14 +1012,14 @@ func checkMaximum(valueField reflect.Value, tag string) error {
 			return err
 		}
 		if maximum < num {
-			errMsg := fmt.Sprintf("%f is greater than %f", num, maximum)
+			errMsg := fmt.Sprintf("The size of %s is %f which is greater than %f", field.Name, num, maximum)
 			return errors.New(errMsg)
 		}
 	}
 	return nil
 }
 
-func checkMinimum(valueField reflect.Value, tag string) error {
+func checkMinimum(field reflect.StructField, valueField reflect.Value, tag string) error {
 	if valueField.IsValid() && valueField.String() != "" {
 		minimum, err := strconv.ParseFloat(tag, 64)
 		if err != nil {
@@ -987,7 +1032,7 @@ func checkMinimum(valueField reflect.Value, tag string) error {
 			return err
 		}
 		if minimum > num {
-			errMsg := fmt.Sprintf("%f is less than %f", num, minimum)
+			errMsg := fmt.Sprintf("The size of %s is %f which is less than %f", field.Name, num, minimum)
 			return errors.New(errMsg)
 		}
 	}
