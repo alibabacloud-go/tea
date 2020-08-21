@@ -55,7 +55,9 @@ type validateTest struct {
 	MinLength *errMinLength `json:"MinLength,omitempty"`
 	Maximum   *errMaximum   `json:"Maximum,omitempty"`
 	Minimum   *errMinimum   `json:"Minimum,omitempty"`
-	List      []*string     `json:"list,omitempty" pattern:"^[a-d]*$" maxLength:"4"`
+	MaxItems  *errMaxItems  `json:"MaxItems,omitempty"`
+	MinItems  *errMinItems  `json:"MinItems,omitempty"`
+	List      []*string     `json:"list,omitempty" pattern:"^[a-d]*$" minItems:"2" maxItems:"3" maxLength:"4"`
 }
 
 type errMaxLength struct {
@@ -72,6 +74,14 @@ type errMaximum struct {
 
 type errMinimum struct {
 	Num *int `json:"num" minimum:"a"`
+}
+
+type errMaxItems struct {
+	NumMax []*int `json:"num" maxItems:"a"`
+}
+
+type errMinItems struct {
+	NumMin []*int `json:"num" minItems:"a"`
 }
 
 type Progresstest struct {
@@ -589,7 +599,6 @@ func Test_validate(t *testing.T) {
 		Num1: &num,
 		Num2: &num,
 		Str:  &str0,
-		List: []*string{&str0},
 	}
 
 	err = validate(reflect.ValueOf(val))
@@ -597,7 +606,7 @@ func Test_validate(t *testing.T) {
 
 	val.Str = &str1
 	err = validate(reflect.ValueOf(val))
-	utils.AssertEqual(t, "Length of abcddd is more than 4", err.Error())
+	utils.AssertEqual(t, "The length of Str is 6 which is more than 4", err.Error())
 
 	val.Num1 = nil
 	err = validate(reflect.ValueOf(val))
@@ -609,13 +618,35 @@ func Test_validate(t *testing.T) {
 
 	val.Num1 = &num
 	val.Str = &str0
-	val.List = []*string{&str1}
+	val.List = []*string{&str0}
 	err = validate(reflect.ValueOf(val))
-	utils.AssertEqual(t, "Length of abcddd is more than 4", err.Error())
+	utils.AssertEqual(t, "The length of List is 1 which is less than 2", err.Error())
 
-	val.Str = nil
+	val.List = []*string{&str0, &str1}
 	err = validate(reflect.ValueOf(val))
-	utils.AssertEqual(t, "Length of abcddd is more than 4", err.Error())
+	utils.AssertEqual(t, "The length of List is 6 which is more than 4", err.Error())
+
+	val.List = []*string{&str0, &str0}
+	err = validate(reflect.ValueOf(val))
+	utils.AssertNil(t, err)
+
+	val.MaxItems = &errMaxItems{
+		NumMax: []*int{&num},
+	}
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, `strconv.Atoi: parsing "a": invalid syntax`, err.Error())
+
+	val.MaxItems = nil
+	val.MinItems = &errMinItems{
+		NumMin: []*int{&num},
+	}
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, `strconv.Atoi: parsing "a": invalid syntax`, err.Error())
+
+	val.MinItems = nil
+	val.List = []*string{&str0, &str0, &str0, &str0}
+	err = validate(reflect.ValueOf(val))
+	utils.AssertEqual(t, "The length of List is 4 which is more than 3", err.Error())
 
 	str2 := "test"
 	val.Str = &str2
@@ -630,6 +661,7 @@ func Test_validate(t *testing.T) {
 	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, `strconv.Atoi: parsing "a": invalid syntax`, err.Error())
 
+	val.List = nil
 	val.MaxLength = nil
 	val.MinLength = &errMinLength{
 		Num: &num,
@@ -637,6 +669,7 @@ func Test_validate(t *testing.T) {
 	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, `strconv.Atoi: parsing "a": invalid syntax`, err.Error())
 
+	val.Name2 = String("tea")
 	val.MinLength = nil
 	val.Maximum = &errMaximum{
 		Num: &num,
@@ -654,22 +687,22 @@ func Test_validate(t *testing.T) {
 	val.Minimum = nil
 	val.Num2 = Int(10)
 	err = validate(reflect.ValueOf(val))
-	utils.AssertEqual(t, `10.000000 is greater than 6.000000`, err.Error())
+	utils.AssertEqual(t, `The size of Num2 is 10.000000 which is greater than 6.000000`, err.Error())
 
 	val.Num2 = nil
 	val.Name1 = String("maxLengthTouch")
 	err = validate(reflect.ValueOf(val))
-	utils.AssertEqual(t, `Length of maxLengthTouch is more than 4`, err.Error())
+	utils.AssertEqual(t, `The length of Name1 is 14 which is more than 4`, err.Error())
 
 	val.Name1 = nil
 	val.Name2 = String("")
 	err = validate(reflect.ValueOf(val))
-	utils.AssertEqual(t, `Length of  is less than 2`, err.Error())
+	utils.AssertEqual(t, `The length of Name2 is 0 which is less than 2`, err.Error())
 
-	val.Name2 = nil
+	val.Name2 = String("tea")
 	val.Num1 = Int(0)
 	err = validate(reflect.ValueOf(val))
-	utils.AssertEqual(t, `0.000000 is less than 2.000000`, err.Error())
+	utils.AssertEqual(t, `The size of Num1 is 0.000000 which is less than 2.000000`, err.Error())
 }
 
 func Test_Prettify(t *testing.T) {
