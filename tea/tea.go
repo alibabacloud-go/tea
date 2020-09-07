@@ -317,6 +317,10 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 			continue
 		} else if key == "host" {
 			httpRequest.Header["Host"] = []string{*value}
+			delete(httpRequest.Header, "host")
+		} else if key == "user-agent" {
+			httpRequest.Header["User-Agent"] = []string{*value}
+			delete(httpRequest.Header, "user-agent")
 		} else {
 			httpRequest.Header[key] = []string{*value}
 		}

@@ -390,6 +390,7 @@ func Test_DoRequest(t *testing.T) {
 	utils.AssertEqual(t, `Internal error`, err.Error())
 
 	request.Headers["host"] = String("tea-cn-hangzhou.aliyuncs.com:80")
+	request.Headers["user-agent"] = String("test")
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `Internal error`, err.Error())
