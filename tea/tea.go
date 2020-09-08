@@ -35,7 +35,7 @@ var hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *
 }
 
 var basicTypes = []string{
-	"int", "int64", "float32", "float64", "string", "bool", "uint64",
+	"int", "int16", "int64", "int32", "float32", "float64", "string", "bool", "uint64", "uint32", "uint16",
 }
 
 // Verify whether the parameters meet the requirements
