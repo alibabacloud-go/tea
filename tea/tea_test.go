@@ -356,6 +356,40 @@ func Test_GetBackoffTime(t *testing.T) {
 	utils.AssertEqual(t, true, IntValue(ms) <= 3)
 }
 
+var key = `-----BEGIN RSA PRIVATE KEY-----
+MIIBPAIBAAJBAN5I1VCLYr2IlTLrFpwUGcnwl8yi6V8Mdw+myxfusNgEWiH/FQ4T
+AZsIveiLOz9Gcc8m2mZSxst2qGII00scpiECAwEAAQJBAJZEhnA8yjN28eXKJy68
+J/LsQrKEL1+h/ZsHFqTHJ6XfiA0CXjbjPsa4jEbpyilMTSgUyoKdJ512ioeco2n6
+xUECIQD/JUHaKSuxz55t3efKdppqfopb92mJ2NuPJgrJI70OCwIhAN8HZ0bzr/4a
+DLvYCDUKvOj3GzsV1dtBwWuHBaZEafQDAiEAtTnrel//7z5/U55ow4BW0gmrkQM9
+bXIhEZ59zryZzl0CIQDFmBqRCu9eshecCP7kd3n88IjopSTOV4iUypBfyXcRnwIg
+eXNxUx+BCu2We36+c0deE2+vizL1s6f5XhE6l4bqtiM=
+-----END RSA PRIVATE KEY-----`
+var cert = `-----BEGIN CERTIFICATE-----
+MIIBvDCCAWYCCQDKjNYQxar0mjANBgkqhkiG9w0BAQsFADBlMQswCQYDVQQGEwJh
+czEMMAoGA1UECAwDYXNmMQwwCgYDVQQHDANzYWQxCzAJBgNVBAoMAnNkMQ0wCwYD
+VQQLDARxd2VyMQswCQYDVQQDDAJzZjERMA8GCSqGSIb3DQEJARYCd2UwHhcNMjAx
+MDE5MDI0MDMwWhcNMzAxMDE3MDI0MDMwWjBlMQswCQYDVQQGEwJhczEMMAoGA1UE
+CAwDYXNmMQwwCgYDVQQHDANzYWQxCzAJBgNVBAoMAnNkMQ0wCwYDVQQLDARxd2Vy
+MQswCQYDVQQDDAJzZjERMA8GCSqGSIb3DQEJARYCd2UwXDANBgkqhkiG9w0BAQEF
+AANLADBIAkEA3kjVUItivYiVMusWnBQZyfCXzKLpXwx3D6bLF+6w2ARaIf8VDhMB
+mwi96Is7P0ZxzybaZlLGy3aoYgjTSxymIQIDAQABMA0GCSqGSIb3DQEBCwUAA0EA
+ZjePopbFugNK0US1MM48V1S2petIsEcxbZBEk/wGqIzrY4RCFKMtbtPSgTDUl3D9
+XePemktG22a54ItVJ5FpcQ==
+-----END CERTIFICATE-----`
+var ca = `-----BEGIN CERTIFICATE-----
+MIIBuDCCAWICCQCLw4OWpjlJCDANBgkqhkiG9w0BAQsFADBjMQswCQYDVQQGEwJm
+ZDEMMAoGA1UECAwDYXNkMQswCQYDVQQHDAJxcjEKMAgGA1UECgwBZjEMMAoGA1UE
+CwwDc2RhMQswCQYDVQQDDAJmZDESMBAGCSqGSIb3DQEJARYDYXNkMB4XDTIwMTAx
+OTAyNDQwNFoXDTIzMDgwOTAyNDQwNFowYzELMAkGA1UEBhMCZmQxDDAKBgNVBAgM
+A2FzZDELMAkGA1UEBwwCcXIxCjAIBgNVBAoMAWYxDDAKBgNVBAsMA3NkYTELMAkG
+A1UEAwwCZmQxEjAQBgkqhkiG9w0BCQEWA2FzZDBcMA0GCSqGSIb3DQEBAQUAA0sA
+MEgCQQCxXZTl5IO61Lqd0fBBOSy7ER1gsdA0LkvflP5HEaQygjecLGfrAtD/DWu0
+/sxCcBVnQRoP9Yp0ijHJwgXvBnrNAgMBAAEwDQYJKoZIhvcNAQELBQADQQBJF+/4
+DEMilhlFY+o9mqCygFVxuvHtQVhpPS938H2h7/P6pXN65jK2Y5hHefZEELq9ulQe
+91iBwaQ4e9racCgP
+-----END CERTIFICATE-----`
+
 func Test_DoRequest(t *testing.T) {
 	origTestHookDo := hookDo
 	defer func() { hookDo = origTestHookDo }()
@@ -407,6 +441,32 @@ func Test_DoRequest(t *testing.T) {
 	}
 	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@ecs.aliyun.com"
 	runtimeObj["localAddr"] = "127.0.0.1"
+	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
+
+	runtimeObj["key"] = "private rsa key"
+	runtimeObj["cert"] = "private certification"
+	runtimeObj["ignoreSSL"] = true
+	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNotNil(t, err)
+	utils.AssertNil(t, resp)
+
+	runtimeObj["key"] = key
+	runtimeObj["cert"] = cert
+	runtimeObj["ca"] = "private ca"
+	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@cs.aliyun.com"
+	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNotNil(t, err)
+
+	runtimeObj["ca"] = ca
+	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@cs.aliyuncs.com"
+	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
+
+	request.Protocol = String("HTTP")
+	runtimeObj["ignoreSSL"] = false
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))

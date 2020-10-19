@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -85,6 +86,9 @@ type RuntimeObject struct {
 	HttpsProxy     *string                `json:"httpsProxy" xml:"httpsProxy"`
 	NoProxy        *string                `json:"noProxy" xml:"noProxy"`
 	MaxIdleConns   *int                   `json:"maxIdleConns" xml:"maxIdleConns"`
+	Key            *string                `json:"key" xml:"key"`
+	Cert           *string                `json:"cert" xml:"cert"`
+	CA             *string                `json:"ca" xml:"ca"`
 	Socks5Proxy    *string                `json:"socks5Proxy" xml:"socks5Proxy"`
 	Socks5NetWork  *string                `json:"socks5NetWork" xml:"socks5NetWork"`
 	Listener       utils.ProgressListener `json:"listener" xml:"listener"`
@@ -123,6 +127,9 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 		MaxIdleConns:   TransInterfaceToInt(runtime["maxIdleConns"]),
 		Socks5Proxy:    TransInterfaceToString(runtime["socks5Proxy"]),
 		Socks5NetWork:  TransInterfaceToString(runtime["socks5NetWork"]),
+		Key:            TransInterfaceToString(runtime["key"]),
+		Cert:           TransInterfaceToString(runtime["cert"]),
+		CA:             TransInterfaceToString(runtime["ca"]),
 	}
 	if runtime["listener"] != nil {
 		runtimeObject.Listener = runtime["listener"].(utils.ProgressListener)
@@ -367,8 +374,29 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 	if err != nil {
 		return nil, err
 	}
-	trans.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: BoolValue(runtime.IgnoreSSL),
+	if strings.ToLower(*req.Protocol) == "https" &&
+		runtime.Key != nil && runtime.Cert != nil {
+		cert, err := tls.X509KeyPair([]byte(StringValue(runtime.Cert)), []byte(StringValue(runtime.Key)))
+		if err != nil {
+			return nil, err
+		}
+
+		trans.TLSClientConfig = &tls.Config{
+			Certificates:       []tls.Certificate{cert},
+			InsecureSkipVerify: BoolValue(runtime.IgnoreSSL),
+		}
+		if runtime.CA != nil {
+			clientCertPool := x509.NewCertPool()
+			ok := clientCertPool.AppendCertsFromPEM([]byte(StringValue(runtime.CA)))
+			if !ok {
+				return nil, errors.New("Failed to parse root certificate")
+			}
+			trans.TLSClientConfig.RootCAs = clientCertPool
+		}
+	} else {
+		trans.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: BoolValue(runtime.IgnoreSSL),
+		}
 	}
 	if httpProxy != nil {
 		trans.Proxy = http.ProxyURL(httpProxy)
