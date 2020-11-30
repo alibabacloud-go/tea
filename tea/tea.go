@@ -959,7 +959,8 @@ func checkRequire(field reflect.StructField, valueField reflect.Value) error {
 func checkPattern(field reflect.StructField, valueField reflect.Value, tag string) error {
 	if valueField.IsValid() && valueField.String() != "" {
 		value := valueField.String()
-		if match, _ := regexp.MatchString(tag, value); !match { // Determines whether the parameter value satisfies the regular expression or not, and throws an error
+		r, _ := regexp.Compile("^" + tag + "$")
+		if match := r.MatchString(value); !match { // Determines whether the parameter value satisfies the regular expression or not, and throws an error
 			return errors.New(value + " is not matched " + tag)
 		}
 	}

@@ -50,14 +50,14 @@ type validateTest struct {
 	Num2      *int          `json:"num2,omitempty" maximum:"6"`
 	Name1     *string       `json:"name1,omitempty" maxLength:"4"`
 	Name2     *string       `json:"name2,omitempty" minLength:"2"`
-	Str       *string       `json:"str,omitempty" pattern:"^[a-d]*$" maxLength:"4"`
+	Str       *string       `json:"str,omitempty" pattern:"[a-d]*" maxLength:"4"`
 	MaxLength *errMaxLength `json:"MaxLength,omitempty"`
 	MinLength *errMinLength `json:"MinLength,omitempty"`
 	Maximum   *errMaximum   `json:"Maximum,omitempty"`
 	Minimum   *errMinimum   `json:"Minimum,omitempty"`
 	MaxItems  *errMaxItems  `json:"MaxItems,omitempty"`
 	MinItems  *errMinItems  `json:"MinItems,omitempty"`
-	List      []*string     `json:"list,omitempty" pattern:"^[a-d]*$" minItems:"2" maxItems:"3" maxLength:"4"`
+	List      []*string     `json:"list,omitempty" pattern:"[a-d]*" minItems:"2" maxItems:"3" maxLength:"4"`
 }
 
 type errMaxLength struct {
@@ -712,7 +712,7 @@ func Test_validate(t *testing.T) {
 	str2 := "test"
 	val.Str = &str2
 	err = validate(reflect.ValueOf(val))
-	utils.AssertEqual(t, "test is not matched ^[a-d]*$", err.Error())
+	utils.AssertEqual(t, "test is not matched [a-d]*", err.Error())
 
 	val.Str = &str0
 	val.List = []*string{&str0}
