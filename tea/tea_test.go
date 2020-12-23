@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -240,6 +241,8 @@ type Test struct {
 	List        []string     `json:"List,omitempty"`
 	CastList    []CastError  `json:"CastList,omitempty"`
 	CastListPtr []*CastError `json:"CastListPtr,omitempty"`
+	Reader      io.Reader
+	Inter       interface{}
 }
 
 func TestToMap(t *testing.T) {
@@ -273,9 +276,12 @@ func TestToMap(t *testing.T) {
 				Message: String("CastList"),
 			},
 		},
+		Reader: strings.NewReader(""),
+		Inter:  10,
 	}
 	result = ToMap(valid)
 	utils.AssertEqual(t, "tea", result["Msg"])
+	utils.AssertNil(t, result["Reader"])
 	utils.AssertEqual(t, map[string]interface{}{"Message": "message"}, result["Cast"])
 	utils.AssertEqual(t, []interface{}{"test", ""}, result["ListPtr"])
 	utils.AssertEqual(t, []interface{}{"list"}, result["List"])
@@ -456,7 +462,7 @@ func Test_DoRequest(t *testing.T) {
 	runtimeObj["cert"] = cert
 	runtimeObj["ca"] = "private ca"
 	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@cs.aliyun.com"
-	resp, err = DoRequest(request, runtimeObj)
+	_, err = DoRequest(request, runtimeObj)
 	utils.AssertNotNil(t, err)
 
 	runtimeObj["ca"] = ca
