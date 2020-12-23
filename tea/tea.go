@@ -726,7 +726,9 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 		if !fieldValue.IsValid() || fieldValue.IsNil() {
 			continue
 		}
-		if field.Type.Kind().String() == "struct" {
+		if field.Type.String() == "io.Reader" || field.Type.String() == "io.Writer" {
+			continue
+		} else if field.Type.Kind().String() == "struct" {
 			out[name] = structToMap(fieldValue)
 		} else if field.Type.Kind().String() == "ptr" &&
 			field.Type.Elem().Kind().String() == "struct" {
