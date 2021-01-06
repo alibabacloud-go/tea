@@ -405,7 +405,6 @@ func Test_DoRequest(t *testing.T) {
 		}
 	}
 	request := NewRequest()
-	request.Port = Int(80)
 	request.Method = String("TEA TEST")
 	resp, err := DoRequest(request, nil)
 	utils.AssertNil(t, resp)
@@ -564,7 +563,7 @@ func Test_getHttpProxy(t *testing.T) {
 
 func Test_SetDialContext(t *testing.T) {
 	runtime := &RuntimeObject{}
-	dialcontext := setDialContext(runtime, 80)
+	dialcontext := setDialContext(runtime)
 	ctx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Second)
 	utils.AssertNotNil(t, cancelFunc)
 	c, err := dialcontext(ctx, "127.0.0.1", "127.0.0.2")
