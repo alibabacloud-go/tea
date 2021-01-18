@@ -1099,3 +1099,11 @@ func Prettify(i interface{}) string {
 	resp, _ := json.MarshalIndent(i, "", "   ")
 	return string(resp)
 }
+
+func ToInt(a *int32) *int {
+	return Int(int(Int32Value(a)))
+}
+
+func ToInt32(a *int) *int32 {
+	return Int32(int32(IntValue(a)))
+}
