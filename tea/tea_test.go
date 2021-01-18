@@ -785,3 +785,11 @@ func Test_Prettify(t *testing.T) {
 	str = Prettify(nil)
 	utils.AssertEqual(t, str, "null")
 }
+
+func Test_TransInt32AndInt(t *testing.T) {
+	a := ToInt(Int32(10))
+	utils.AssertEqual(t, IntValue(a), 10)
+
+	b := ToInt32(a)
+	utils.AssertEqual(t, Int32Value(b), int32(10))
+}
