@@ -139,6 +139,18 @@ func TestConvert(t *testing.T) {
 	utils.AssertEqual(t, "test", string(out.Body))
 }
 
+func TestConvertType(t *testing.T){
+	in := map[string]interface{}{
+		"key": 123,
+		"body": []byte("test"),
+	}
+	out := new(test)
+	err := Convert(in, &out)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "123", out.Key)
+	utils.AssertEqual(t, "test", string(out.Body))
+}
+
 func TestRuntimeObject(t *testing.T) {
 	runtimeobject := NewRuntimeObject(nil)
 	utils.AssertNil(t, runtimeobject.IgnoreSSL)
