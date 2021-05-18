@@ -209,7 +209,9 @@ func (err *CastError) Error() string {
 // Convert is use convert map[string]interface object to struct
 func Convert(in interface{}, out interface{}) error {
 	byt, _ := json.Marshal(in)
-	err := jsonParser.Unmarshal(byt, out)
+	decoder := jsonParser.NewDecoder(bytes.NewReader(byt))  
+	decoder.UseNumber();
+	err := decoder.Decode(&out)
 	return err
 }
 
