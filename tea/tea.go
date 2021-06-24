@@ -181,8 +181,11 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 		err.Message = String(obj["message"].(string))
 	}
 	if data := obj["data"]; data != nil {
-		byt, _ := json.Marshal(data)
-		err.Data = String(string(byt))
+		byteBuf := bytes.NewBuffer([]byte{})
+		encoder := json.NewEncoder(byteBuf)
+		encoder.SetEscapeHTML(false)
+		encoder.Encode(data)
+		err.Data = String(byteBuf.String())
 	}
 	return err
 }
@@ -208,10 +211,11 @@ func (err *CastError) Error() string {
 
 // Convert is use convert map[string]interface object to struct
 func Convert(in interface{}, out interface{}) error {
-	byt, _ := json.Marshal(in)
-	decoder := jsonParser.NewDecoder(bytes.NewReader(byt))  
-	decoder.UseNumber();
-	err := decoder.Decode(&out)
+	byteBuf := bytes.NewBuffer([]byte{})
+	encoder := json.NewEncoder(byteBuf)
+	encoder.SetEscapeHTML(false)
+	encoder.Encode(in)
+	err := jsonParser.Unmarshal(byteBuf.Bytes(), out)
 	return err
 }
 
