@@ -209,8 +209,8 @@ func (err *CastError) Error() string {
 // Convert is use convert map[string]interface object to struct
 func Convert(in interface{}, out interface{}) error {
 	byt, _ := json.Marshal(in)
-	decoder := jsonParser.NewDecoder(bytes.NewReader(byt))  
-	decoder.UseNumber();
+	decoder := jsonParser.NewDecoder(bytes.NewReader(byt))
+	decoder.UseNumber()
 	err := decoder.Decode(&out)
 	return err
 }
@@ -763,17 +763,7 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 }
 
 func Retryable(err error) *bool {
-	if err == nil {
-		return Bool(false)
-	}
-	if realErr, ok := err.(*SDKError); ok {
-		code, err := strconv.Atoi(StringValue(realErr.Code))
-		if err != nil {
-			return Bool(true)
-		}
-		return Bool(code >= http.StatusInternalServerError)
-	}
-	return Bool(true)
+	return Bool(false)
 }
 
 func GetBackoffTime(backoff interface{}, retrytimes *int) *int {
