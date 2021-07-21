@@ -139,9 +139,9 @@ func TestConvert(t *testing.T) {
 	utils.AssertEqual(t, "test", string(out.Body))
 }
 
-func TestConvertType(t *testing.T){
+func TestConvertType(t *testing.T) {
 	in := map[string]interface{}{
-		"key": 123,
+		"key":  123,
 		"body": []byte("test"),
 	}
 	out := new(test)
@@ -161,8 +161,9 @@ func TestRuntimeObject(t *testing.T) {
 
 func TestSDKError(t *testing.T) {
 	err := NewSDKError(map[string]interface{}{
-		"code":    "code",
-		"message": "message",
+		"code":       "code",
+		"statusCode": 404,
+		"message":    "message",
 		"data": map[string]interface{}{
 			"httpCode":  "404",
 			"requestId": "dfadfa32cgfdcasd4313",
@@ -170,7 +171,7 @@ func TestSDKError(t *testing.T) {
 		},
 	})
 	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "SDKError:\n   Code: code\n   Message: message\n   Data: {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"requestId\":\"dfadfa32cgfdcasd4313\"}\n", err.Error())
+	utils.AssertEqual(t, "SDKError:\n   StatusCode: 404\n   Code: code\n   Message: message\n   Data: {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"requestId\":\"dfadfa32cgfdcasd4313\"}\n", err.Error())
 
 	err.SetErrMsg("test")
 	utils.AssertEqual(t, "test", err.Error())
@@ -178,11 +179,12 @@ func TestSDKError(t *testing.T) {
 
 func TestSDKErrorCode404(t *testing.T) {
 	err := NewSDKError(map[string]interface{}{
-		"code":    404,
-		"message": "message",
+		"statusCode": 404,
+		"code":       "NOTFOUND",
+		"message":    "message",
 	})
 	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "SDKError:\n   Code: 404\n   Message: message\n   Data: \n", err.Error())
+	utils.AssertEqual(t, "SDKError:\n   StatusCode: 404\n   Code: NOTFOUND\n   Message: message\n   Data: \n", err.Error())
 }
 
 func TestToObject(t *testing.T) {
@@ -330,13 +332,13 @@ func Test_Retryable(t *testing.T) {
 	utils.AssertEqual(t, true, BoolValue(ifRetry))
 
 	errmsg := map[string]interface{}{
-		"code": "err",
+		"statusCode": "500",
 	}
 	err = NewSDKError(errmsg)
 	ifRetry = Retryable(err)
 	utils.AssertEqual(t, true, BoolValue(ifRetry))
 
-	errmsg["code"] = "400"
+	errmsg["statusCode"] = 400
 	err = NewSDKError(errmsg)
 	ifRetry = Retryable(err)
 	utils.AssertEqual(t, false, BoolValue(ifRetry))
