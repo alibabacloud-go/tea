@@ -332,18 +332,28 @@ func Test_Retryable(t *testing.T) {
 	utils.AssertEqual(t, true, BoolValue(ifRetry))
 
 	errmsg := map[string]interface{}{
-		"statusCode": "500",
+		"code": "err",
 	}
 	err = NewSDKError(errmsg)
 	ifRetry = Retryable(err)
-	utils.AssertEqual(t, true, BoolValue(ifRetry))
+	utils.AssertEqual(t, false, BoolValue(ifRetry))
 
 	errmsg["statusCode"] = 400
 	err = NewSDKError(errmsg)
 	ifRetry = Retryable(err)
 	utils.AssertEqual(t, false, BoolValue(ifRetry))
 
+	errmsg["statusCode"] = "400"
+	err = NewSDKError(errmsg)
+	ifRetry = Retryable(err)
+	utils.AssertEqual(t, false, BoolValue(ifRetry))
+
 	errmsg["statusCode"] = 500
+	err = NewSDKError(errmsg)
+	ifRetry = Retryable(err)
+	utils.AssertEqual(t, true, BoolValue(ifRetry))
+
+	errmsg["statusCode"] = "500"
 	err = NewSDKError(errmsg)
 	ifRetry = Retryable(err)
 	utils.AssertEqual(t, true, BoolValue(ifRetry))
