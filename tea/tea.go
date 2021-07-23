@@ -777,6 +777,9 @@ func Retryable(err error) *bool {
 		return Bool(false)
 	}
 	if realErr, ok := err.(*SDKError); ok {
+		if realErr.StatusCode == nil {
+			return Bool(false)
+		}
 		code := IntValue(realErr.StatusCode)
 		return Bool(code >= http.StatusInternalServerError)
 	}
