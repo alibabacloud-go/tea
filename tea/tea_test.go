@@ -342,6 +342,16 @@ func Test_Retryable(t *testing.T) {
 	err = NewSDKError(errmsg)
 	ifRetry = Retryable(err)
 	utils.AssertEqual(t, false, BoolValue(ifRetry))
+
+	errmsg["statusCode"] = 500
+	err = NewSDKError(errmsg)
+	ifRetry = Retryable(err)
+	utils.AssertEqual(t, true, BoolValue(ifRetry))
+
+	errmsg["statusCode"] = "test"
+	err = NewSDKError(errmsg)
+	ifRetry = Retryable(err)
+	utils.AssertEqual(t, false, BoolValue(ifRetry))
 }
 
 func Test_GetBackoffTime(t *testing.T) {
