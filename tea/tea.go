@@ -178,6 +178,32 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 		err.Code = String(val)
 	}
 
+	if obj["message"] != nil {
+		err.Message = String(obj["message"].(string))
+	}
+	if data := obj["data"]; data != nil {
+		r := reflect.ValueOf(data)
+		if r.Kind().String() == "map" {
+			res := make(map[string]interface{})
+			tmp := r.MapKeys()
+			for _, key := range tmp {
+				res[key.String()] = r.MapIndex(key).Interface()
+			}
+			if statusCode := res["statusCode"]; statusCode != nil {
+				if code, ok := statusCode.(int); ok {
+					err.StatusCode = Int(code)
+				} else if tmp, ok := statusCode.(string); ok {
+					code, err2 := strconv.Atoi(tmp)
+					if err2 == nil {
+						err.StatusCode = Int(code)
+					}
+				}
+			}
+		}
+		byt, _ := json.Marshal(data)
+		err.Data = String(string(byt))
+	}
+
 	if statusCode, ok := obj["statusCode"].(int); ok {
 		err.StatusCode = Int(statusCode)
 	} else if status, ok := obj["statusCode"].(string); ok {
@@ -187,13 +213,6 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 		}
 	}
 
-	if obj["message"] != nil {
-		err.Message = String(obj["message"].(string))
-	}
-	if data := obj["data"]; data != nil {
-		byt, _ := json.Marshal(data)
-		err.Data = String(string(byt))
-	}
 	return err
 }
 
