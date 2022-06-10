@@ -1,0 +1,35 @@
+name: Go CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: [1.13, 1.14, 1.15]
+
+    steps:
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v2
+      with:
+        go-version: ${{ matrix.go }}
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v2
+
+    - name: Build Tea
+      run: go build ./tea
+    - name: Build Util
+      run: go build ./utils
+
+    - name: Test
+      run: go test -race -coverprofile=coverage.txt -covermode=atomic ./tea/... ./utils/...
+    
+    - name: CodeCov
+      run: bash <(curl -s https://codecov.io/bash)
