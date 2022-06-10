@@ -175,6 +175,51 @@ func TestSDKError(t *testing.T) {
 
 	err.SetErrMsg("test")
 	utils.AssertEqual(t, "test", err.Error())
+	utils.AssertEqual(t, 404, *err.StatusCode)
+
+	err = NewSDKError(map[string]interface{}{
+		"statusCode": "404",
+		"data": map[string]interface{}{
+			"statusCode": 500,
+		},
+	})
+	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, 404, *err.StatusCode)
+
+	err = NewSDKError(map[string]interface{}{
+		"data": map[string]interface{}{
+			"statusCode": 500,
+		},
+	})
+	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, 500, *err.StatusCode)
+
+	err = NewSDKError(map[string]interface{}{
+		"data": map[string]interface{}{
+			"statusCode": "500",
+		},
+	})
+	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, 500, *err.StatusCode)
+
+	err = NewSDKError(map[string]interface{}{
+		"code":    "code",
+		"message": "message",
+		"data": map[string]interface{}{
+			"requestId": "dfadfa32cgfdcasd4313",
+		},
+	})
+	utils.AssertNotNil(t, err)
+	utils.AssertNil(t, err.StatusCode)
+
+	err = NewSDKError(map[string]interface{}{
+		"code":    "code",
+		"message": "message",
+		"data":    "string data",
+	})
+	utils.AssertNotNil(t, err)
+	utils.AssertNotNil(t, err.Data)
+	utils.AssertNil(t, err.StatusCode)
 }
 
 func TestSDKErrorCode404(t *testing.T) {
@@ -252,9 +297,11 @@ type Test struct {
 func TestToMap(t *testing.T) {
 	in := map[string]*string{
 		"tea": String("test"),
+		"nil": nil,
 	}
 	result := ToMap(in)
 	utils.AssertEqual(t, "test", result["tea"])
+	utils.AssertNil(t, result["nil"])
 
 	validMap := map[string]interface{}{
 		"valid": "test",
