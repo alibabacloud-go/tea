@@ -197,6 +197,8 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 					if err_ == nil {
 						err.StatusCode = Int(code)
 					}
+				} else if code, ok := statusCode.(*int); ok {
+					err.StatusCode = code
 				}
 			}
 		}
