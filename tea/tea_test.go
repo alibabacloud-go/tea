@@ -196,6 +196,14 @@ func TestSDKError(t *testing.T) {
 
 	err = NewSDKError(map[string]interface{}{
 		"data": map[string]interface{}{
+			"statusCode": Int(500),
+		},
+	})
+	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, 500, *err.StatusCode)
+
+	err = NewSDKError(map[string]interface{}{
+		"data": map[string]interface{}{
 			"statusCode": "500",
 		},
 	})
