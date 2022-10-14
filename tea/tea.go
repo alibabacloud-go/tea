@@ -306,7 +306,12 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 
 	requestURL := ""
 	request.Domain = request.Headers["host"]
-	requestURL = fmt.Sprintf("%s://%s%s", StringValue(request.Protocol), StringValue(request.Domain), StringValue(request.Pathname))
+	if request.Port != nil {
+		requestURL = fmt.Sprintf("%s://%s:%d%s", StringValue(request.Protocol), StringValue(request.Domain), IntValue(request.Port),StringValue(request.Pathname))
+	} else {
+		requestURL = fmt.Sprintf("%s://%s%s", StringValue(request.Protocol), StringValue(request.Domain), StringValue(request.Pathname))
+	}
+
 	queryParams := request.Query
 	// sort QueryParams by key
 	q := url.Values{}
