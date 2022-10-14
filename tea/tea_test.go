@@ -169,6 +169,14 @@ func TestSDKError(t *testing.T) {
 			"requestId": "dfadfa32cgfdcasd4313",
 			"hostId":    "github.com/alibabacloud/tea",
 		},
+		"description": "description",
+		"accessDeniedDetail": map[string]interface{}{
+			"AuthAction":        "ram:ListUsers",
+			"AuthPrincipalType": "SubUser",
+			"PolicyType":        "ResourceGroupLevelIdentityBassdPolicy",
+			"NoPermissionType":  "ImplicitDeny",
+			"UserId":            123,
+		},
 	})
 	utils.AssertNotNil(t, err)
 	utils.AssertEqual(t, "SDKError:\n   StatusCode: 404\n   Code: code\n   Message: message\n   Data: {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"requestId\":\"dfadfa32cgfdcasd4313\"}\n", err.Error())
@@ -176,6 +184,9 @@ func TestSDKError(t *testing.T) {
 	err.SetErrMsg("test")
 	utils.AssertEqual(t, "test", err.Error())
 	utils.AssertEqual(t, 404, *err.StatusCode)
+	utils.AssertEqual(t, "description", *err.Description)
+	utils.AssertEqual(t, "ImplicitDeny", err.AccessDeniedDetail["NoPermissionType"])
+	utils.AssertEqual(t, 123, err.AccessDeniedDetail["UserId"])
 
 	err = NewSDKError(map[string]interface{}{
 		"statusCode": "404",
