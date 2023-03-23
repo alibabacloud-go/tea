@@ -565,6 +565,20 @@ func Test_DoRequest(t *testing.T) {
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
+
+	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
+		return func(req *http.Request) (*http.Response, error) {
+			utils.AssertEqual(t, "tea-cn-hangzhou.aliyuncs.com:1080", req.Host)
+			return mockResponse(200, ``, errors.New("Internal error"))
+		}
+	}
+	request.Pathname = String("/log")
+	request.Protocol = String("http")
+	request.Port = Int(1080)
+	request.Headers["host"] = String("tea-cn-hangzhou.aliyuncs.com")
+	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `Internal error`, err.Error())
 }
 
 func Test_DoRequestWithConcurrent(t *testing.T) {
