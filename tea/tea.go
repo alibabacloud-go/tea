@@ -476,6 +476,9 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 	} else {
 		trans.DialContext = setDialContext(runtime)
 	}
+	trans.MaxIdleConns = IntValue(runtime.MaxIdleConns)
+	trans.MaxIdleConnsPerHost = IntValue(runtime.MaxIdleConns)
+	trans.TLSHandshakeTimeout = 30 * time.Second
 	return trans, nil
 }
 
@@ -581,11 +584,13 @@ func setDialContext(runtime *RuntimeObject) func(cxt context.Context, net, addr 
 				Timeout:   time.Duration(IntValue(runtime.ConnectTimeout)) * time.Second,
 				DualStack: true,
 				LocalAddr: netAddr,
+				KeepAlive: 30 * time.Second,
 			}).DialContext(ctx, network, address)
 		}
 		return (&net.Dialer{
 			Timeout:   time.Duration(IntValue(runtime.ConnectTimeout)) * time.Second,
 			DualStack: true,
+			KeepAlive: 30 * time.Second,
 		}).DialContext(ctx, network, address)
 	}
 }
