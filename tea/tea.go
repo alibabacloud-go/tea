@@ -476,7 +476,7 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 	} else {
 		trans.DialContext = setDialContext(runtime)
 	}
-	if runtime.MaxIdleConns != nil {
+	if runtime.MaxIdleConns != nil && *runtime.MaxIdleConns > 0 {
 		trans.MaxIdleConns = IntValue(runtime.MaxIdleConns)
 		trans.MaxIdleConnsPerHost = IntValue(runtime.MaxIdleConns)
 	}
