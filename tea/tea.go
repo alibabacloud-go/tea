@@ -392,6 +392,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 		utils.PublishProgress(runtimeObject.Listener, event)
 		return
 	}
+	defer res.Body.Close()
 
 	event = utils.NewProgressEvent(utils.TransferCompletedEvent, completedBytes, int64(contentlength), 0)
 	utils.PublishProgress(runtimeObject.Listener, event)
