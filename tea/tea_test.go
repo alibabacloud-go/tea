@@ -542,20 +542,32 @@ func Test_DoRequest(t *testing.T) {
 
 	runtimeObj["key"] = "private rsa key"
 	runtimeObj["cert"] = "private certification"
+	runtimeObj["ca"] = "private ca"
 	runtimeObj["ignoreSSL"] = true
 	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNil(t, err)
+	utils.AssertNotNil(t, resp)
+
+	// update the host is to restart a client
+	request.Headers["host"] = String("a.com")
+	runtimeObj["ignoreSSL"] = false
+	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, "tls: failed to find any PEM data in certificate input", err.Error())
 	utils.AssertNil(t, resp)
 
+	// update the host is to restart a client
+	request.Headers["host"] = String("b.com")
 	runtimeObj["key"] = key
 	runtimeObj["cert"] = cert
 	runtimeObj["ca"] = "private ca"
-	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@cs.aliyun.com"
 	_, err = DoRequest(request, runtimeObj)
 	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, "Failed to parse root certificate", err.Error())
 
+	// update the host is to restart a client
+	request.Headers["host"] = String("c.com")
 	runtimeObj["ca"] = ca
-	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@cs.aliyuncs.com"
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
