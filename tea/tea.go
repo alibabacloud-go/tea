@@ -262,7 +262,7 @@ func Convert(in interface{}, out interface{}) error {
 	return err
 }
 
-// Convert is use convert map[string]interface object to struct
+// Recover is used to format error
 func Recover(in interface{}) error {
 	if in == nil {
 		return nil
