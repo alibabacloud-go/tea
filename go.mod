@@ -6,5 +6,5 @@ require (
 	github.com/alibabacloud-go/debug v0.0.0-20190504072949-9472017b5c68
 	github.com/json-iterator/go v1.1.12
 	github.com/modern-go/reflect2 v1.0.2
-	golang.org/x/net v0.11.0
+	golang.org/x/net v0.12.0
 )
