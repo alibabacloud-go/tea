@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/alibabacloud-go/tea/utils"
+	opentracing "github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
 )
 
 type test struct {
@@ -47,18 +49,19 @@ var runtimeObj = map[string]interface{}{
 }
 
 type validateTest struct {
-	Num1      *int          `json:"num1,omitempty" require:"true" minimum:"2"`
-	Num2      *int          `json:"num2,omitempty" maximum:"6"`
-	Name1     *string       `json:"name1,omitempty" maxLength:"4"`
-	Name2     *string       `json:"name2,omitempty" minLength:"2"`
-	Str       *string       `json:"str,omitempty" pattern:"[a-d]*" maxLength:"4"`
-	MaxLength *errMaxLength `json:"MaxLength,omitempty"`
-	MinLength *errMinLength `json:"MinLength,omitempty"`
-	Maximum   *errMaximum   `json:"Maximum,omitempty"`
-	Minimum   *errMinimum   `json:"Minimum,omitempty"`
-	MaxItems  *errMaxItems  `json:"MaxItems,omitempty"`
-	MinItems  *errMinItems  `json:"MinItems,omitempty"`
-	List      []*string     `json:"list,omitempty" pattern:"[a-d]*" minItems:"2" maxItems:"3" maxLength:"4"`
+	Num1         *int              `json:"num1,omitempty" require:"true" minimum:"2"`
+	Num2         *int              `json:"num2,omitempty" maximum:"6"`
+	Name1        *string           `json:"name1,omitempty" maxLength:"4"`
+	Name2        *string           `json:"name2,omitempty" minLength:"2"`
+	Str          *string           `json:"str,omitempty" pattern:"[a-d]*" maxLength:"4"`
+	MaxLength    *errMaxLength     `json:"MaxLength,omitempty"`
+	MinLength    *errMinLength     `json:"MinLength,omitempty"`
+	Maximum      *errMaximum       `json:"Maximum,omitempty"`
+	Minimum      *errMinimum       `json:"Minimum,omitempty"`
+	MaxItems     *errMaxItems      `json:"MaxItems,omitempty"`
+	MinItems     *errMinItems      `json:"MinItems,omitempty"`
+	List         []*string         `json:"list,omitempty" pattern:"[a-d]*" minItems:"2" maxItems:"3" maxLength:"4"`
+	PtrNotStruct *opentracing.Span `json:"span" xml:"span"`
 }
 
 type errMaxLength struct {
@@ -746,6 +749,17 @@ func Test_Validate(t *testing.T) {
 		Num1: &num,
 	}
 	err := Validate(config)
+	utils.AssertNil(t, err)
+
+	tracer := opentracing.GlobalTracer()
+	span := tracer.StartSpan(
+		"aliyuncs.com/test",
+		opentracing.Tag{Key: string(ext.Component), Value: "aliyunApi"},
+		opentracing.Tag{Key: "request", Value: "test"})
+	config = &validateTest{
+		PtrNotStruct: &span,
+	}
+	err = Validate(config)
 	utils.AssertNil(t, err)
 
 	err = Validate(new(validateTest))
