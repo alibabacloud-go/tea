@@ -26,6 +26,8 @@ import (
 	"github.com/alibabacloud-go/debug/debug"
 	"github.com/alibabacloud-go/tea/utils"
 
+	opentracing "github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
 	"golang.org/x/net/proxy"
 )
 
@@ -97,6 +99,8 @@ type RuntimeObject struct {
 	Listener       utils.ProgressListener `json:"listener" xml:"listener"`
 	Tracker        *utils.ReaderTracker   `json:"tracker" xml:"tracker"`
 	Logger         *utils.Logger          `json:"logger" xml:"logger"`
+	Span           opentracing.Span       `json:"span" xml:"span"`
+	IsCloseTrace   *bool                  `json:"isCloseTrace" xml:"isCloseTrace"`
 }
 
 type teaClient struct {
@@ -133,6 +137,7 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 		Key:            TransInterfaceToString(runtime["key"]),
 		Cert:           TransInterfaceToString(runtime["cert"]),
 		CA:             TransInterfaceToString(runtime["ca"]),
+		IsCloseTrace:   TransInterfaceToBool(runtime["isCloseTrace"]),
 	}
 	if runtime["listener"] != nil {
 		runtimeObject.Listener = runtime["listener"].(utils.ProgressListener)
@@ -142,6 +147,9 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 	}
 	if runtime["logger"] != nil {
 		runtimeObject.Logger = runtime["logger"].(*utils.Logger)
+	}
+	if runtime["span"] != nil {
+		runtimeObject.Span = runtime["span"].(opentracing.Span)
 	}
 	return runtimeObject
 }
@@ -377,6 +385,30 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 	contentlength, _ := strconv.Atoi(StringValue(request.Headers["content-length"]))
 	event := utils.NewProgressEvent(utils.TransferStartedEvent, 0, int64(contentlength), 0)
 	utils.PublishProgress(runtimeObject.Listener, event)
+
+	// Set tracer
+	var span opentracing.Span
+	if ok := opentracing.IsGlobalTracerRegistered(); ok && BoolValue(runtimeObject.IsCloseTrace) != true {
+		tracer := opentracing.GlobalTracer()
+		var rootCtx opentracing.SpanContext
+		var rootSpan opentracing.Span
+
+		if rootSpan = runtimeObject.Span; rootSpan != nil {
+			rootCtx = rootSpan.Context()
+		}
+
+		span = tracer.StartSpan(
+			httpRequest.URL.RequestURI(),
+			opentracing.ChildOf(rootCtx),
+			opentracing.Tag{Key: string(ext.Component), Value: "aliyunApi"},
+			opentracing.Tag{Key: "request", Value: requestURL})
+
+		defer span.Finish()
+		tracer.Inject(
+			span.Context(),
+			opentracing.HTTPHeaders,
+			opentracing.HTTPHeadersCarrier(httpRequest.Header))
+	}
 
 	putMsgToMap(fieldMap, httpRequest)
 	startTime := time.Now()
