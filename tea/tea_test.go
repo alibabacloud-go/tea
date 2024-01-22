@@ -168,6 +168,7 @@ func TestSDKError(t *testing.T) {
 			"httpCode":  "404",
 			"requestId": "dfadfa32cgfdcasd4313",
 			"hostId":    "github.com/alibabacloud/tea",
+			"recommend": "https://中文?q=a.b&product=c&requestId=123",
 		},
 		"description": "description",
 		"accessDeniedDetail": map[string]interface{}{
@@ -179,7 +180,7 @@ func TestSDKError(t *testing.T) {
 		},
 	})
 	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "SDKError:\n   StatusCode: 404\n   Code: code\n   Message: message\n   Data: {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"requestId\":\"dfadfa32cgfdcasd4313\"}\n", err.Error())
+	utils.AssertEqual(t, "SDKError:\n   StatusCode: 404\n   Code: code\n   Message: message\n   Data: {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"recommend\":\"https://中文?q=a.b&product=c&requestId=123\",\"requestId\":\"dfadfa32cgfdcasd4313\"}\n", err.Error())
 
 	err.SetErrMsg("test")
 	utils.AssertEqual(t, "test", err.Error())
