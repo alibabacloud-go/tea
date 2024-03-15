@@ -1,5 +1,12 @@
 package tea
 
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+)
+
 func String(a string) *string {
 	return &a
 }
@@ -488,4 +495,72 @@ func BoolSliceValue(a []*bool) []bool {
 		}
 	}
 	return res
+}
+
+func TransInterfaceToBool(val interface{}) *bool {
+	if val == nil {
+		return nil
+	}
+
+	return Bool(val.(bool))
+}
+
+func TransInterfaceToInt(val interface{}) *int {
+	if val == nil {
+		return nil
+	}
+
+	return Int(val.(int))
+}
+
+func TransInterfaceToInt64(val interface{}) *int64 {
+	if val == nil {
+		return nil
+	}
+
+	return Int64(val.(int64))
+}
+
+func TransInterfaceToString(val interface{}) *string {
+	if val == nil {
+		return nil
+	}
+
+	return String(val.(string))
+}
+
+func ToInt(a *int32) *int {
+	return Int(int(Int32Value(a)))
+}
+
+func ToInt32(a *int) *int32 {
+	return Int32(int32(IntValue(a)))
+}
+
+func ToString(val interface{}) string {
+	return fmt.Sprintf("%v", val)
+}
+
+func ToObject(obj interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	byt, _ := json.Marshal(obj)
+	err := json.Unmarshal(byt, &result)
+	if err != nil {
+		return nil
+	}
+	return result
+}
+
+func ToReader(obj interface{}) io.Reader {
+	switch obj.(type) {
+	case *string:
+		tmp := obj.(*string)
+		return strings.NewReader(StringValue(tmp))
+	case []byte:
+		return strings.NewReader(string(obj.([]byte)))
+	case io.Reader:
+		return obj.(io.Reader)
+	default:
+		panic("Invalid Body. Please set a valid Body.")
+	}
 }
