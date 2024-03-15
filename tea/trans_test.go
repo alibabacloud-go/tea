@@ -1,6 +1,8 @@
 package tea
 
 import (
+	"io/ioutil"
+	"strings"
 	"testing"
 
 	"github.com/alibabacloud-go/tea/utils"
@@ -160,4 +162,86 @@ func Test_Trans(t *testing.T) {
 	utils.AssertEqual(t, []uint64{1}, ui64ValSlice)
 	utils.AssertNil(t, Uint64Slice(nil))
 	utils.AssertNil(t, Uint64ValueSlice(nil))
+}
+
+func Test_TransInterfaceToInt(t *testing.T) {
+	a := TransInterfaceToInt(nil)
+	utils.AssertNil(t, a)
+
+	a = TransInterfaceToInt(10)
+	utils.AssertEqual(t, IntValue(a), 10)
+}
+
+func Test_TransInterfaceToInt64(t *testing.T) {
+	a := TransInterfaceToInt64(nil)
+	utils.AssertNil(t, a)
+
+	a = TransInterfaceToInt64(int64(10))
+	utils.AssertEqual(t, Int64Value(a), int64(10))
+}
+
+func Test_TransInterfaceToString(t *testing.T) {
+	a := TransInterfaceToString(nil)
+	utils.AssertNil(t, a)
+
+	a = TransInterfaceToString("10")
+	utils.AssertEqual(t, StringValue(a), "10")
+}
+
+func Test_TransInt32AndInt(t *testing.T) {
+	a := ToInt(Int32(10))
+	utils.AssertEqual(t, IntValue(a), 10)
+
+	b := ToInt32(a)
+	utils.AssertEqual(t, Int32Value(b), int32(10))
+}
+
+func Test_ToString(t *testing.T) {
+	str := ToString(10)
+	utils.AssertEqual(t, "10", str)
+
+	str = ToString("10")
+	utils.AssertEqual(t, "10", str)
+}
+
+func Test_ToObject(t *testing.T) {
+	str := "{sdsfdsd:"
+	result := ToObject(str)
+	utils.AssertNil(t, result)
+
+	input := map[string]string{
+		"name": "test",
+	}
+	result = ToObject(input)
+	utils.AssertEqual(t, "test", result["name"].(string))
+}
+
+func Test_ToReader(t *testing.T) {
+	str := "abc"
+	reader := ToReader(String(str))
+	byt, err := ioutil.ReadAll(reader)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "abc", string(byt))
+
+	read := strings.NewReader("bcd")
+	reader = ToReader(read)
+	byt, err = ioutil.ReadAll(reader)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "bcd", string(byt))
+
+	byts := []byte("cdf")
+	reader = ToReader(byts)
+	byt, err = ioutil.ReadAll(reader)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "cdf", string(byt))
+
+	num := 10
+	defer func() {
+		err := recover()
+		utils.AssertEqual(t, "Invalid Body. Please set a valid Body.", err.(string))
+	}()
+	reader = ToReader(num)
+	byt, err = ioutil.ReadAll(reader)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "", string(byt))
 }

@@ -23,27 +23,24 @@ type test struct {
 	Body []byte `json:"body,omitempty"`
 }
 
-type PrettifyTest struct {
-	name     string
-	Strs     []string
-	Nums8    []int8
-	Unum8    []uint8
-	Value    string
-	Mapvalue map[string]string
-}
-
 var runtimeObj = map[string]interface{}{
-	"ignoreSSL":     false,
-	"readTimeout":   0,
-	"localAddr":     "",
-	"httpProxy":     "",
-	"httpsProxy":    "",
-	"maxIdleConns":  0,
-	"socks5Proxy":   "",
-	"socks5NetWork": "",
-	"listener":      &Progresstest{},
-	"tracker":       &utils.ReaderTracker{CompletedBytes: int64(10)},
-	"logger":        utils.NewLogger("info", "", &bytes.Buffer{}, "{time}"),
+	"ignoreSSL":      false,
+	"readTimeout":    0,
+	"connectTimeout": 0,
+	"localAddr":      "",
+	"httpProxy":      "",
+	"httpsProxy":     "",
+	"noProxy":        "",
+	"maxIdleConns":   0,
+	"socks5Proxy":    "",
+	"socks5NetWork":  "",
+	"listener":       &Progresstest{},
+	"tracker":        &utils.ReaderTracker{CompletedBytes: int64(10)},
+	"logger":         utils.NewLogger("info", "", &bytes.Buffer{}, "{time}"),
+	"retryOptions":   &RetryOptions{},
+	"key":            "",
+	"cert":           "",
+	"ca":             "",
 }
 
 type validateTest struct {
@@ -105,11 +102,6 @@ func mockResponse(statusCode int, content string, mockerr error) (res *http.Resp
 	return
 }
 
-func TestCastError(t *testing.T) {
-	err := NewCastError(String("cast error"))
-	utils.AssertEqual(t, "cast error", err.Error())
-}
-
 func TestRequest(t *testing.T) {
 	request := NewRequest()
 	utils.AssertNotNil(t, request)
@@ -127,180 +119,28 @@ func TestResponse(t *testing.T) {
 	utils.AssertNil(t, err)
 }
 
-func TestConvert(t *testing.T) {
-	in := map[string]interface{}{
-		"key":  "value",
-		"body": []byte("test"),
-	}
-	out := new(test)
-	err := Convert(in, &out)
-	utils.AssertNil(t, err)
-	utils.AssertEqual(t, "value", out.Key)
-	utils.AssertEqual(t, "test", string(out.Body))
-}
-
-func TestConvertType(t *testing.T) {
-	in := map[string]interface{}{
-		"key":  123,
-		"body": []byte("test"),
-	}
-	out := new(test)
-	err := Convert(in, &out)
-	utils.AssertNil(t, err)
-	utils.AssertEqual(t, "123", out.Key)
-	utils.AssertEqual(t, "test", string(out.Body))
-}
-
 func TestRuntimeObject(t *testing.T) {
 	runtimeobject := NewRuntimeObject(nil)
 	utils.AssertNil(t, runtimeobject.IgnoreSSL)
 
 	runtimeobject = NewRuntimeObject(runtimeObj)
 	utils.AssertEqual(t, false, BoolValue(runtimeobject.IgnoreSSL))
-}
-
-func TestSDKError(t *testing.T) {
-	err := NewSDKError(map[string]interface{}{
-		"code":       "code",
-		"statusCode": 404,
-		"message":    "message",
-		"data": map[string]interface{}{
-			"httpCode":  "404",
-			"requestId": "dfadfa32cgfdcasd4313",
-			"hostId":    "github.com/alibabacloud/tea",
-			"recommend": "https://中文?q=a.b&product=c&requestId=123",
-		},
-		"description": "description",
-		"accessDeniedDetail": map[string]interface{}{
-			"AuthAction":        "ram:ListUsers",
-			"AuthPrincipalType": "SubUser",
-			"PolicyType":        "ResourceGroupLevelIdentityBassdPolicy",
-			"NoPermissionType":  "ImplicitDeny",
-			"UserId":            123,
-		},
-	})
-	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "SDKError:\n   StatusCode: 404\n   Code: code\n   Message: message\n   Data: {\"hostId\":\"github.com/alibabacloud/tea\",\"httpCode\":\"404\",\"recommend\":\"https://中文?q=a.b&product=c&requestId=123\",\"requestId\":\"dfadfa32cgfdcasd4313\"}\n", err.Error())
-
-	err.SetErrMsg("test")
-	utils.AssertEqual(t, "test", err.Error())
-	utils.AssertEqual(t, 404, *err.StatusCode)
-	utils.AssertEqual(t, "description", *err.Description)
-	utils.AssertEqual(t, "ImplicitDeny", err.AccessDeniedDetail["NoPermissionType"])
-	utils.AssertEqual(t, 123, err.AccessDeniedDetail["UserId"])
-
-	err = NewSDKError(map[string]interface{}{
-		"statusCode": "404",
-		"data": map[string]interface{}{
-			"statusCode": 500,
-		},
-	})
-	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, 404, *err.StatusCode)
-
-	err = NewSDKError(map[string]interface{}{
-		"data": map[string]interface{}{
-			"statusCode": 500,
-		},
-	})
-	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, 500, *err.StatusCode)
-
-	err = NewSDKError(map[string]interface{}{
-		"data": map[string]interface{}{
-			"statusCode": Int(500),
-		},
-	})
-	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, 500, *err.StatusCode)
-
-	err = NewSDKError(map[string]interface{}{
-		"data": map[string]interface{}{
-			"statusCode": "500",
-		},
-	})
-	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, 500, *err.StatusCode)
-
-	err = NewSDKError(map[string]interface{}{
-		"code":    "code",
-		"message": "message",
-		"data": map[string]interface{}{
-			"requestId": "dfadfa32cgfdcasd4313",
-		},
-	})
-	utils.AssertNotNil(t, err)
-	utils.AssertNil(t, err.StatusCode)
-
-	err = NewSDKError(map[string]interface{}{
-		"code":    "code",
-		"message": "message",
-		"data":    "string data",
-	})
-	utils.AssertNotNil(t, err)
-	utils.AssertNotNil(t, err.Data)
-	utils.AssertNil(t, err.StatusCode)
-}
-
-func TestSDKErrorCode404(t *testing.T) {
-	err := NewSDKError(map[string]interface{}{
-		"statusCode": 404,
-		"code":       "NOTFOUND",
-		"message":    "message",
-	})
-	utils.AssertNotNil(t, err)
-	utils.AssertEqual(t, "SDKError:\n   StatusCode: 404\n   Code: NOTFOUND\n   Message: message\n   Data: \n", err.Error())
-}
-
-func TestToObject(t *testing.T) {
-	str := "{sdsfdsd:"
-	result := ToObject(str)
-	utils.AssertNil(t, result)
-
-	input := map[string]string{
-		"name": "test",
-	}
-	result = ToObject(input)
-	utils.AssertEqual(t, "test", result["name"].(string))
-}
-
-func TestAllowRetry(t *testing.T) {
-	allow := AllowRetry(nil, Int(0))
-	utils.AssertEqual(t, true, BoolValue(allow))
-
-	allow = AllowRetry(nil, Int(1))
-	utils.AssertEqual(t, false, BoolValue(allow))
-
-	input := map[string]interface{}{
-		"retryable":   false,
-		"maxAttempts": 2,
-	}
-	allow = AllowRetry(input, Int(1))
-	utils.AssertEqual(t, false, BoolValue(allow))
-
-	input["retryable"] = true
-	allow = AllowRetry(input, Int(3))
-	utils.AssertEqual(t, false, BoolValue(allow))
-
-	input["retryable"] = true
-	allow = AllowRetry(input, Int(1))
-	utils.AssertEqual(t, true, BoolValue(allow))
-}
-
-func TestMerge(t *testing.T) {
-	in := map[string]*string{
-		"tea": String("test"),
-	}
-	valid := map[string]interface{}{
-		"valid": "test",
-	}
-	invalidStr := "sdfdg"
-	result := Merge(in, valid, invalidStr)
-	utils.AssertEqual(t, "test", StringValue(result["tea"]))
-	utils.AssertEqual(t, "test", StringValue(result["valid"]))
-
-	result = Merge(nil)
-	utils.AssertEqual(t, map[string]*string{}, result)
+	utils.AssertEqual(t, 0, IntValue(runtimeobject.ReadTimeout))
+	utils.AssertEqual(t, 0, IntValue(runtimeobject.ConnectTimeout))
+	utils.AssertEqual(t, "", StringValue(runtimeobject.LocalAddr))
+	utils.AssertEqual(t, "", StringValue(runtimeobject.HttpProxy))
+	utils.AssertEqual(t, "", StringValue(runtimeobject.HttpsProxy))
+	utils.AssertEqual(t, "", StringValue(runtimeobject.NoProxy))
+	utils.AssertEqual(t, 0, IntValue(runtimeobject.MaxIdleConns))
+	utils.AssertEqual(t, "", StringValue(runtimeobject.Key))
+	utils.AssertEqual(t, "", StringValue(runtimeobject.Cert))
+	utils.AssertEqual(t, "", StringValue(runtimeobject.CA))
+	utils.AssertEqual(t, "", StringValue(runtimeobject.Socks5Proxy))
+	utils.AssertEqual(t, "", StringValue(runtimeobject.Socks5NetWork))
+	utils.AssertNotNil(t, runtimeobject.Listener)
+	utils.AssertNotNil(t, runtimeobject.Tracker)
+	utils.AssertNotNil(t, runtimeobject.Logger)
+	utils.AssertNotNil(t, runtimeobject.RetryOptions)
 }
 
 type Test struct {
@@ -314,7 +154,7 @@ type Test struct {
 	Inter       interface{}
 }
 
-func TestToMap(t *testing.T) {
+func Test_ToMap(t *testing.T) {
 	in := map[string]*string{
 		"tea": String("test"),
 		"nil": nil,
@@ -390,69 +230,6 @@ func TestToMap(t *testing.T) {
 	utils.AssertNil(t, result)
 }
 
-func Test_Retryable(t *testing.T) {
-	ifRetry := Retryable(nil)
-	utils.AssertEqual(t, false, BoolValue(ifRetry))
-
-	err := errors.New("tea")
-	ifRetry = Retryable(err)
-	utils.AssertEqual(t, true, BoolValue(ifRetry))
-
-	errmsg := map[string]interface{}{
-		"code": "err",
-	}
-	err = NewSDKError(errmsg)
-	ifRetry = Retryable(err)
-	utils.AssertEqual(t, false, BoolValue(ifRetry))
-
-	errmsg["statusCode"] = 400
-	err = NewSDKError(errmsg)
-	ifRetry = Retryable(err)
-	utils.AssertEqual(t, false, BoolValue(ifRetry))
-
-	errmsg["statusCode"] = "400"
-	err = NewSDKError(errmsg)
-	ifRetry = Retryable(err)
-	utils.AssertEqual(t, false, BoolValue(ifRetry))
-
-	errmsg["statusCode"] = 500
-	err = NewSDKError(errmsg)
-	ifRetry = Retryable(err)
-	utils.AssertEqual(t, true, BoolValue(ifRetry))
-
-	errmsg["statusCode"] = "500"
-	err = NewSDKError(errmsg)
-	ifRetry = Retryable(err)
-	utils.AssertEqual(t, true, BoolValue(ifRetry))
-
-	errmsg["statusCode"] = "test"
-	err = NewSDKError(errmsg)
-	ifRetry = Retryable(err)
-	utils.AssertEqual(t, false, BoolValue(ifRetry))
-}
-
-func Test_GetBackoffTime(t *testing.T) {
-	ms := GetBackoffTime(nil, Int(0))
-	utils.AssertEqual(t, 0, IntValue(ms))
-
-	backoff := map[string]interface{}{
-		"policy": "no",
-	}
-	ms = GetBackoffTime(backoff, Int(0))
-	utils.AssertEqual(t, 0, IntValue(ms))
-
-	backoff["policy"] = "yes"
-	backoff["period"] = 0
-	ms = GetBackoffTime(backoff, Int(1))
-	utils.AssertEqual(t, 0, IntValue(ms))
-
-	Sleep(Int(1))
-
-	backoff["period"] = 3
-	ms = GetBackoffTime(backoff, Int(1))
-	utils.AssertEqual(t, true, IntValue(ms) <= 3)
-}
-
 var key = `-----BEGIN RSA PRIVATE KEY-----
 MIIBPAIBAAJBAN5I1VCLYr2IlTLrFpwUGcnwl8yi6V8Mdw+myxfusNgEWiH/FQ4T
 AZsIveiLOz9Gcc8m2mZSxst2qGII00scpiECAwEAAQJBAJZEhnA8yjN28eXKJy68
@@ -490,8 +267,8 @@ DEMilhlFY+o9mqCygFVxuvHtQVhpPS938H2h7/P6pXN65jK2Y5hHefZEELq9ulQe
 func Test_DoRequest(t *testing.T) {
 	origTestHookDo := hookDo
 	defer func() { hookDo = origTestHookDo }()
-	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
-		return func(req *http.Request) (*http.Response, error) {
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 			return mockResponse(200, ``, errors.New("Internal error"))
 		}
 	}
@@ -530,8 +307,8 @@ func Test_DoRequest(t *testing.T) {
 	utils.AssertNil(t, resp)
 	utils.AssertContains(t, err.Error(), ` invalid URL escape "%gf"`)
 
-	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
-		return func(req *http.Request) (*http.Response, error) {
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 			return mockResponse(200, ``, nil)
 		}
 	}
@@ -579,8 +356,8 @@ func Test_DoRequest(t *testing.T) {
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
 
-	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
-		return func(req *http.Request) (*http.Response, error) {
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 			utils.AssertEqual(t, "tea-cn-hangzhou.aliyuncs.com:1080", req.Host)
 			return mockResponse(200, ``, errors.New("Internal error"))
 		}
@@ -594,11 +371,129 @@ func Test_DoRequest(t *testing.T) {
 	utils.AssertEqual(t, `Internal error`, err.Error())
 }
 
-func Test_DoRequestWithConcurrent(t *testing.T) {
+func Test_DoAction(t *testing.T) {
 	origTestHookDo := hookDo
 	defer func() { hookDo = origTestHookDo }()
-	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
-		return func(req *http.Request) (*http.Response, error) {
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+			return mockResponse(200, ``, errors.New("Internal error"))
+		}
+	}
+	request := NewRequest()
+	request.Method = String("TEA TEST")
+	resp, err := DoAction(request, nil)
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `net/http: invalid method "TEA TEST"`, err.Error())
+
+	request.Method = String("")
+	request.Protocol = String("https")
+	request.Query = map[string]*string{
+		"tea": String("test"),
+	}
+	runtimeObj["httpsProxy"] = "# #%gfdf"
+	runtimeObject := NewRuntimeObject(runtimeObj)
+	resp, err = DoAction(request, runtimeObject)
+	utils.AssertNil(t, resp)
+	utils.AssertContains(t, err.Error(), `invalid URL escape "%gf"`)
+
+	request.Pathname = String("?log")
+	request.Headers["tea"] = String("")
+	request.Headers["content-length"] = nil
+	runtimeObj["httpsProxy"] = "http://someuser:somepassword@ecs.aliyun.com"
+	runtimeObject = NewRuntimeObject(runtimeObj)
+	resp, err = DoAction(request, runtimeObject)
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `Internal error`, err.Error())
+
+	request.Headers["host"] = String("tea-cn-hangzhou.aliyuncs.com:80")
+	request.Headers["user-agent"] = String("test")
+	runtimeObject = NewRuntimeObject(runtimeObj)
+	resp, err = DoAction(request, runtimeObject)
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `Internal error`, err.Error())
+
+	runtimeObj["socks5Proxy"] = "# #%gfdf"
+	runtimeObject = NewRuntimeObject(runtimeObj)
+	resp, err = DoAction(request, runtimeObject)
+	utils.AssertNil(t, resp)
+	utils.AssertContains(t, err.Error(), ` invalid URL escape "%gf"`)
+
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+			return mockResponse(200, ``, nil)
+		}
+	}
+	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@ecs.aliyun.com"
+	runtimeObj["localAddr"] = "127.0.0.1"
+	runtimeObject = NewRuntimeObject(runtimeObj)
+	resp, err = DoAction(request, runtimeObject)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
+
+	runtimeObj["key"] = "private rsa key"
+	runtimeObj["cert"] = "private certification"
+	runtimeObj["ca"] = "private ca"
+	runtimeObj["ignoreSSL"] = true
+	runtimeObject = NewRuntimeObject(runtimeObj)
+	resp, err = DoAction(request, runtimeObject)
+	utils.AssertNil(t, err)
+	utils.AssertNotNil(t, resp)
+
+	// update the host is to restart a client
+	request.Headers["host"] = String("a.com")
+	runtimeObj["ignoreSSL"] = false
+	runtimeObject = NewRuntimeObject(runtimeObj)
+	resp, err = DoAction(request, runtimeObject)
+	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, "tls: failed to find any PEM data in certificate input", err.Error())
+	utils.AssertNil(t, resp)
+
+	// update the host is to restart a client
+	request.Headers["host"] = String("b.com")
+	runtimeObj["key"] = key
+	runtimeObj["cert"] = cert
+	runtimeObj["ca"] = "private ca"
+	runtimeObject = NewRuntimeObject(runtimeObj)
+	_, err = DoAction(request, runtimeObject)
+	utils.AssertNotNil(t, err)
+	utils.AssertEqual(t, "Failed to parse root certificate", err.Error())
+
+	// update the host is to restart a client
+	request.Headers["host"] = String("c.com")
+	runtimeObj["ca"] = ca
+	runtimeObject = NewRuntimeObject(runtimeObj)
+	resp, err = DoAction(request, runtimeObject)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
+
+	request.Protocol = String("HTTP")
+	runtimeObj["ignoreSSL"] = false
+	runtimeObject = NewRuntimeObject(runtimeObj)
+	resp, err = DoAction(request, runtimeObject)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
+
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+			utils.AssertEqual(t, "tea-cn-hangzhou.aliyuncs.com:1080", req.Host)
+			return mockResponse(200, ``, errors.New("Internal error"))
+		}
+	}
+	request.Pathname = String("/log")
+	request.Protocol = String("http")
+	request.Port = Int(1080)
+	request.Headers["host"] = String("tea-cn-hangzhou.aliyuncs.com")
+	runtimeObject = NewRuntimeObject(runtimeObj)
+	resp, err = DoAction(request, runtimeObject)
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `Internal error`, err.Error())
+}
+
+func Test_DoActionWithConcurrent(t *testing.T) {
+	origTestHookDo := hookDo
+	defer func() { hookDo = origTestHookDo }()
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 			return mockResponse(200, ``, nil)
 		}
 	}
@@ -609,11 +504,12 @@ func Test_DoRequestWithConcurrent(t *testing.T) {
 			runtime := map[string]interface{}{
 				"readTimeout": readTimeout,
 			}
+			runtimeObject := NewRuntimeObject(runtime)
 			for j := 0; j < 50; j++ {
 				wg.Add(1)
 				go func() {
 					request := NewRequest()
-					resp, err := DoRequest(request, runtime)
+					resp, err := DoAction(request, runtimeObject)
 					utils.AssertNil(t, err)
 					utils.AssertNotNil(t, resp)
 					wg.Done()
@@ -694,51 +590,13 @@ func Test_SetDialContext(t *testing.T) {
 }
 
 func Test_hookdo(t *testing.T) {
-	fn := func(req *http.Request) (*http.Response, error) {
+	fn := func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 		return nil, errors.New("hookdo")
 	}
 	result := hookDo(fn)
-	resp, err := result(nil)
+	resp, err := result(nil, nil)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, "hookdo", err.Error())
-}
-
-func Test_ToReader(t *testing.T) {
-	str := "abc"
-	reader := ToReader(String(str))
-	byt, err := ioutil.ReadAll(reader)
-	utils.AssertNil(t, err)
-	utils.AssertEqual(t, "abc", string(byt))
-
-	read := strings.NewReader("bcd")
-	reader = ToReader(read)
-	byt, err = ioutil.ReadAll(reader)
-	utils.AssertNil(t, err)
-	utils.AssertEqual(t, "bcd", string(byt))
-
-	byts := []byte("cdf")
-	reader = ToReader(byts)
-	byt, err = ioutil.ReadAll(reader)
-	utils.AssertNil(t, err)
-	utils.AssertEqual(t, "cdf", string(byt))
-
-	num := 10
-	defer func() {
-		err := recover()
-		utils.AssertEqual(t, "Invalid Body. Please set a valid Body.", err.(string))
-	}()
-	reader = ToReader(num)
-	byt, err = ioutil.ReadAll(reader)
-	utils.AssertNil(t, err)
-	utils.AssertEqual(t, "", string(byt))
-}
-
-func Test_ToString(t *testing.T) {
-	str := ToString(10)
-	utils.AssertEqual(t, "10", str)
-
-	str = ToString("10")
-	utils.AssertEqual(t, "10", str)
 }
 
 func Test_Validate(t *testing.T) {
@@ -758,17 +616,6 @@ func Test_Validate(t *testing.T) {
 
 	err = Validate(nil)
 	utils.AssertNil(t, err)
-}
-
-func Test_Recover(t *testing.T) {
-	err := Recover(nil)
-	utils.AssertNil(t, err)
-	defer func() {
-		if r := Recover(recover()); r != nil {
-			utils.AssertEqual(t, "test", r.Error())
-		}
-	}()
-	panic("test")
 }
 
 func Test_validate(t *testing.T) {
@@ -886,27 +733,4 @@ func Test_validate(t *testing.T) {
 	val.Num1 = Int(0)
 	err = validate(reflect.ValueOf(val))
 	utils.AssertEqual(t, `The size of Num1 is 0.000000 which is less than 2.000000`, err.Error())
-}
-
-func Test_Prettify(t *testing.T) {
-	prettifyTest := &PrettifyTest{
-		name:     "prettify",
-		Nums8:    []int8{0, 1, 2, 4},
-		Unum8:    []uint8{0},
-		Value:    "ok",
-		Mapvalue: map[string]string{"key": "ccp", "value": "ok"},
-	}
-	str := Prettify(prettifyTest)
-	utils.AssertContains(t, str, "Nums8")
-
-	str = Prettify(nil)
-	utils.AssertEqual(t, str, "null")
-}
-
-func Test_TransInt32AndInt(t *testing.T) {
-	a := ToInt(Int32(10))
-	utils.AssertEqual(t, IntValue(a), 10)
-
-	b := ToInt32(a)
-	utils.AssertEqual(t, Int32Value(b), int32(10))
 }
