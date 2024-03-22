@@ -81,22 +81,23 @@ type SDKError struct {
 
 // RuntimeObject is used for converting http configuration
 type RuntimeObject struct {
-	IgnoreSSL      *bool                  `json:"ignoreSSL" xml:"ignoreSSL"`
-	ReadTimeout    *int                   `json:"readTimeout" xml:"readTimeout"`
-	ConnectTimeout *int                   `json:"connectTimeout" xml:"connectTimeout"`
-	LocalAddr      *string                `json:"localAddr" xml:"localAddr"`
-	HttpProxy      *string                `json:"httpProxy" xml:"httpProxy"`
-	HttpsProxy     *string                `json:"httpsProxy" xml:"httpsProxy"`
-	NoProxy        *string                `json:"noProxy" xml:"noProxy"`
-	MaxIdleConns   *int                   `json:"maxIdleConns" xml:"maxIdleConns"`
-	Key            *string                `json:"key" xml:"key"`
-	Cert           *string                `json:"cert" xml:"cert"`
-	CA             *string                `json:"ca" xml:"ca"`
-	Socks5Proxy    *string                `json:"socks5Proxy" xml:"socks5Proxy"`
-	Socks5NetWork  *string                `json:"socks5NetWork" xml:"socks5NetWork"`
-	Listener       utils.ProgressListener `json:"listener" xml:"listener"`
-	Tracker        *utils.ReaderTracker   `json:"tracker" xml:"tracker"`
-	Logger         *utils.Logger          `json:"logger" xml:"logger"`
+	IgnoreSSL       *bool                  `json:"ignoreSSL" xml:"ignoreSSL"`
+	ReadTimeout     *int                   `json:"readTimeout" xml:"readTimeout"`
+	ConnectTimeout  *int                   `json:"connectTimeout" xml:"connectTimeout"`
+	IdleConnTimeout *int                   `json:"idleConnTimeout" xml:"idleConnTimeout"`
+	LocalAddr       *string                `json:"localAddr" xml:"localAddr"`
+	HttpProxy       *string                `json:"httpProxy" xml:"httpProxy"`
+	HttpsProxy      *string                `json:"httpsProxy" xml:"httpsProxy"`
+	NoProxy         *string                `json:"noProxy" xml:"noProxy"`
+	MaxIdleConns    *int                   `json:"maxIdleConns" xml:"maxIdleConns"`
+	Key             *string                `json:"key" xml:"key"`
+	Cert            *string                `json:"cert" xml:"cert"`
+	CA              *string                `json:"ca" xml:"ca"`
+	Socks5Proxy     *string                `json:"socks5Proxy" xml:"socks5Proxy"`
+	Socks5NetWork   *string                `json:"socks5NetWork" xml:"socks5NetWork"`
+	Listener        utils.ProgressListener `json:"listener" xml:"listener"`
+	Tracker         *utils.ReaderTracker   `json:"tracker" xml:"tracker"`
+	Logger          *utils.Logger          `json:"logger" xml:"logger"`
 }
 
 type teaClient struct {
@@ -109,7 +110,7 @@ var clientPool = &sync.Map{}
 
 func (r *RuntimeObject) getClientTag(domain string) string {
 	return strconv.FormatBool(BoolValue(r.IgnoreSSL)) + strconv.Itoa(IntValue(r.ReadTimeout)) +
-		strconv.Itoa(IntValue(r.ConnectTimeout)) + StringValue(r.LocalAddr) + StringValue(r.HttpProxy) +
+		strconv.Itoa(IntValue(r.ConnectTimeout)) + strconv.Itoa(IntValue(r.IdleConnTimeout)) + StringValue(r.LocalAddr) + StringValue(r.HttpProxy) +
 		StringValue(r.HttpsProxy) + StringValue(r.NoProxy) + StringValue(r.Socks5Proxy) + StringValue(r.Socks5NetWork) + domain
 }
 
@@ -120,19 +121,20 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 	}
 
 	runtimeObject := &RuntimeObject{
-		IgnoreSSL:      TransInterfaceToBool(runtime["ignoreSSL"]),
-		ReadTimeout:    TransInterfaceToInt(runtime["readTimeout"]),
-		ConnectTimeout: TransInterfaceToInt(runtime["connectTimeout"]),
-		LocalAddr:      TransInterfaceToString(runtime["localAddr"]),
-		HttpProxy:      TransInterfaceToString(runtime["httpProxy"]),
-		HttpsProxy:     TransInterfaceToString(runtime["httpsProxy"]),
-		NoProxy:        TransInterfaceToString(runtime["noProxy"]),
-		MaxIdleConns:   TransInterfaceToInt(runtime["maxIdleConns"]),
-		Socks5Proxy:    TransInterfaceToString(runtime["socks5Proxy"]),
-		Socks5NetWork:  TransInterfaceToString(runtime["socks5NetWork"]),
-		Key:            TransInterfaceToString(runtime["key"]),
-		Cert:           TransInterfaceToString(runtime["cert"]),
-		CA:             TransInterfaceToString(runtime["ca"]),
+		IgnoreSSL:       TransInterfaceToBool(runtime["ignoreSSL"]),
+		ReadTimeout:     TransInterfaceToInt(runtime["readTimeout"]),
+		ConnectTimeout:  TransInterfaceToInt(runtime["connectTimeout"]),
+		IdleConnTimeout: TransInterfaceToInt(runtime["idleConnTimeout"]),
+		LocalAddr:       TransInterfaceToString(runtime["localAddr"]),
+		HttpProxy:       TransInterfaceToString(runtime["httpProxy"]),
+		HttpsProxy:      TransInterfaceToString(runtime["httpsProxy"]),
+		NoProxy:         TransInterfaceToString(runtime["noProxy"]),
+		MaxIdleConns:    TransInterfaceToInt(runtime["maxIdleConns"]),
+		Socks5Proxy:     TransInterfaceToString(runtime["socks5Proxy"]),
+		Socks5NetWork:   TransInterfaceToString(runtime["socks5NetWork"]),
+		Key:             TransInterfaceToString(runtime["key"]),
+		Cert:            TransInterfaceToString(runtime["cert"]),
+		CA:              TransInterfaceToString(runtime["ca"]),
 	}
 	if runtime["listener"] != nil {
 		runtimeObject.Listener = runtime["listener"].(utils.ProgressListener)
@@ -414,6 +416,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 
 func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, error) {
 	trans := new(http.Transport)
+	trans.IdleConnTimeout = time.Duration(IntValue(runtime.IdleConnTimeout)) * time.Millisecond // default zero, no limit
 	httpProxy, err := getHttpProxy(StringValue(req.Protocol), StringValue(req.Domain), runtime)
 	if err != nil {
 		return nil, err
