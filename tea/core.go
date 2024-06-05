@@ -10,8 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
-	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -31,7 +29,28 @@ import (
 
 var debugLog = debug.Init("tea")
 
-var hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
+type HttpRequest interface {
+}
+
+type HttpResponse interface {
+}
+
+type HttpClient interface {
+	Call(request *http.Request, transport *http.Transport) (response *http.Response, err error)
+}
+
+type teaClient struct {
+	sync.Mutex
+	httpClient *http.Client
+	ifInit     bool
+}
+
+func (client *teaClient) Call(request *http.Request, transport *http.Transport) (response *http.Response, err error) {
+	response, err = client.httpClient.Do(request)
+	return
+}
+
+var hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 	return fn
 }
 
@@ -41,11 +60,6 @@ var basicTypes = []string{
 
 // Verify whether the parameters meet the requirements
 var validateParams = []string{"require", "pattern", "maxLength", "minLength", "maximum", "minimum", "maxItems", "minItems"}
-
-// CastError is used for cast type fails
-type CastError struct {
-	Message *string
-}
 
 // Request is used wrap http request
 type Request struct {
@@ -67,18 +81,6 @@ type Response struct {
 	Headers       map[string]*string
 }
 
-// SDKError struct is used save error code and message
-type SDKError struct {
-	Code               *string
-	StatusCode         *int
-	Message            *string
-	Data               *string
-	Stack              *string
-	errMsg             *string
-	Description        *string
-	AccessDeniedDetail map[string]interface{}
-}
-
 // RuntimeObject is used for converting http configuration
 type RuntimeObject struct {
 	IgnoreSSL      *bool                  `json:"ignoreSSL" xml:"ignoreSSL"`
@@ -97,12 +99,8 @@ type RuntimeObject struct {
 	Listener       utils.ProgressListener `json:"listener" xml:"listener"`
 	Tracker        *utils.ReaderTracker   `json:"tracker" xml:"tracker"`
 	Logger         *utils.Logger          `json:"logger" xml:"logger"`
-}
-
-type teaClient struct {
-	sync.Mutex
-	httpClient *http.Client
-	ifInit     bool
+	RetryOptions   *RetryOptions          `json:"retryOptions" xml:"retryOptions"`
+	HttpClient
 }
 
 var clientPool = &sync.Map{}
@@ -134,6 +132,9 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 		Cert:           TransInterfaceToString(runtime["cert"]),
 		CA:             TransInterfaceToString(runtime["ca"]),
 	}
+	if runtime["retryOptions"] != nil {
+		runtimeObject.RetryOptions = runtime["retryOptions"].(*RetryOptions)
+	}
 	if runtime["listener"] != nil {
 		runtimeObject.Listener = runtime["listener"].(utils.ProgressListener)
 	}
@@ -143,14 +144,10 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 	if runtime["logger"] != nil {
 		runtimeObject.Logger = runtime["logger"].(*utils.Logger)
 	}
-	return runtimeObject
-}
-
-// NewCastError is used for cast type fails
-func NewCastError(message *string) (err error) {
-	return &CastError{
-		Message: message,
+	if runtime["httpClient"] != nil {
+		runtimeObject.HttpClient = runtime["httpClient"].(HttpClient)
 	}
+	return runtimeObject
 }
 
 // NewRequest is used shortly create Request
@@ -169,108 +166,6 @@ func NewResponse(httpResponse *http.Response) (res *Response) {
 	res.StatusCode = Int(httpResponse.StatusCode)
 	res.StatusMessage = String(httpResponse.Status)
 	return
-}
-
-// NewSDKError is used for shortly create SDKError object
-func NewSDKError(obj map[string]interface{}) *SDKError {
-	err := &SDKError{}
-	if val, ok := obj["code"].(int); ok {
-		err.Code = String(strconv.Itoa(val))
-	} else if val, ok := obj["code"].(string); ok {
-		err.Code = String(val)
-	}
-
-	if obj["message"] != nil {
-		err.Message = String(obj["message"].(string))
-	}
-	if obj["description"] != nil {
-		err.Description = String(obj["description"].(string))
-	}
-	if detail := obj["accessDeniedDetail"]; detail != nil {
-		r := reflect.ValueOf(detail)
-		if r.Kind().String() == "map" {
-			res := make(map[string]interface{})
-			tmp := r.MapKeys()
-			for _, key := range tmp {
-				res[key.String()] = r.MapIndex(key).Interface()
-			}
-			err.AccessDeniedDetail = res
-		}
-	}
-	if data := obj["data"]; data != nil {
-		r := reflect.ValueOf(data)
-		if r.Kind().String() == "map" {
-			res := make(map[string]interface{})
-			tmp := r.MapKeys()
-			for _, key := range tmp {
-				res[key.String()] = r.MapIndex(key).Interface()
-			}
-			if statusCode := res["statusCode"]; statusCode != nil {
-				if code, ok := statusCode.(int); ok {
-					err.StatusCode = Int(code)
-				} else if tmp, ok := statusCode.(string); ok {
-					code, err_ := strconv.Atoi(tmp)
-					if err_ == nil {
-						err.StatusCode = Int(code)
-					}
-				} else if code, ok := statusCode.(*int); ok {
-					err.StatusCode = code
-				}
-			}
-		}
-		byt := bytes.NewBuffer([]byte{})
-		jsonEncoder := json.NewEncoder(byt)
-		jsonEncoder.SetEscapeHTML(false)
-		jsonEncoder.Encode(data)
-		err.Data = String(string(bytes.TrimSpace(byt.Bytes())))
-	}
-
-	if statusCode, ok := obj["statusCode"].(int); ok {
-		err.StatusCode = Int(statusCode)
-	} else if status, ok := obj["statusCode"].(string); ok {
-		statusCode, err_ := strconv.Atoi(status)
-		if err_ == nil {
-			err.StatusCode = Int(statusCode)
-		}
-	}
-
-	return err
-}
-
-// Set ErrMsg by msg
-func (err *SDKError) SetErrMsg(msg string) {
-	err.errMsg = String(msg)
-}
-
-func (err *SDKError) Error() string {
-	if err.errMsg == nil {
-		str := fmt.Sprintf("SDKError:\n   StatusCode: %d\n   Code: %s\n   Message: %s\n   Data: %s\n",
-			IntValue(err.StatusCode), StringValue(err.Code), StringValue(err.Message), StringValue(err.Data))
-		err.SetErrMsg(str)
-	}
-	return StringValue(err.errMsg)
-}
-
-// Return message of CastError
-func (err *CastError) Error() string {
-	return StringValue(err.Message)
-}
-
-// Convert is use convert map[string]interface object to struct
-func Convert(in interface{}, out interface{}) error {
-	byt, _ := json.Marshal(in)
-	decoder := jsonParser.NewDecoder(bytes.NewReader(byt))
-	decoder.UseNumber()
-	err := decoder.Decode(&out)
-	return err
-}
-
-// Recover is used to format error
-func Recover(in interface{}) error {
-	if in == nil {
-		return nil
-	}
-	return errors.New(fmt.Sprint(in))
 }
 
 // ReadBody is used read response body
@@ -303,9 +198,11 @@ func getTeaClient(tag string) *teaClient {
 	return client.(*teaClient)
 }
 
-// DoRequest is used send request to server
-func DoRequest(request *Request, requestRuntime map[string]interface{}) (response *Response, err error) {
-	runtimeObject := NewRuntimeObject(requestRuntime)
+// DoAction is used send request to server
+func DoAction(request *Request, runtimeObject *RuntimeObject) (response *Response, err error) {
+	if runtimeObject == nil {
+		runtimeObject = &RuntimeObject{}
+	}
 	fieldMap := make(map[string]string)
 	utils.InitLogMsg(fieldMap)
 	defer func() {
@@ -350,19 +247,27 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 		return
 	}
 	httpRequest.Host = StringValue(request.Domain)
-
-	client := getTeaClient(runtimeObject.getClientTag(StringValue(request.Domain)))
-	client.Lock()
-	if !client.ifInit {
-		trans, err := getHttpTransport(request, runtimeObject)
-		if err != nil {
-			return nil, err
-		}
-		client.httpClient.Timeout = time.Duration(IntValue(runtimeObject.ReadTimeout)) * time.Millisecond
-		client.httpClient.Transport = trans
-		client.ifInit = true
+	var client HttpClient
+	if runtimeObject.HttpClient == nil {
+		client = getTeaClient(runtimeObject.getClientTag(StringValue(request.Domain)))
+	} else {
+		client = runtimeObject.HttpClient
 	}
-	client.Unlock()
+
+	trans, err := getHttpTransport(request, runtimeObject)
+	if err != nil {
+		return
+	}
+	if defaultClient, ok := client.(*teaClient); ok {
+		defaultClient.Lock()
+		if !defaultClient.ifInit || defaultClient.httpClient.Transport == nil {
+			defaultClient.httpClient.Transport = trans
+		}
+		defaultClient.httpClient.Timeout = time.Duration(IntValue(runtimeObject.ReadTimeout)) * time.Millisecond
+		defaultClient.ifInit = true
+		defaultClient.Unlock()
+	}
+
 	for key, value := range request.Headers {
 		if value == nil || key == "content-length" {
 			continue
@@ -384,7 +289,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 	putMsgToMap(fieldMap, httpRequest)
 	startTime := time.Now()
 	fieldMap["{start_time}"] = startTime.Format("2006-01-02 15:04:05")
-	res, err := hookDo(client.httpClient.Do)(httpRequest)
+	res, err := hookDo(client.Call)(httpRequest, trans)
 	fieldMap["{cost}"] = time.Since(startTime).String()
 	completedBytes := int64(0)
 	if runtimeObject.Tracker != nil {
@@ -409,6 +314,13 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 			response.Headers[strings.ToLower(key)] = String(value[0])
 		}
 	}
+	return
+}
+
+// DoRequest is used send request to server
+func DoRequest(request *Request, requestRuntime map[string]interface{}) (response *Response, err error) {
+	runtimeObject := NewRuntimeObject(requestRuntime)
+	response, err = DoAction(request, runtimeObject)
 	return
 }
 
@@ -518,24 +430,6 @@ func getNoProxy(protocol string, runtime *RuntimeObject) []string {
 	return urls
 }
 
-func ToReader(obj interface{}) io.Reader {
-	switch obj.(type) {
-	case *string:
-		tmp := obj.(*string)
-		return strings.NewReader(StringValue(tmp))
-	case []byte:
-		return strings.NewReader(string(obj.([]byte)))
-	case io.Reader:
-		return obj.(io.Reader)
-	default:
-		panic("Invalid Body. Please set a valid Body.")
-	}
-}
-
-func ToString(val interface{}) string {
-	return fmt.Sprintf("%v", val)
-}
-
 func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL, err error) {
 	urls := getNoProxy(protocol, runtime)
 	for _, url := range urls {
@@ -597,65 +491,6 @@ func setDialContext(runtime *RuntimeObject) func(cxt context.Context, net, addr 
 			DualStack: true,
 		}).DialContext(ctx, network, address)
 	}
-}
-
-func ToObject(obj interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
-	byt, _ := json.Marshal(obj)
-	err := json.Unmarshal(byt, &result)
-	if err != nil {
-		return nil
-	}
-	return result
-}
-
-func AllowRetry(retry interface{}, retryTimes *int) *bool {
-	if IntValue(retryTimes) == 0 {
-		return Bool(true)
-	}
-	retryMap, ok := retry.(map[string]interface{})
-	if !ok {
-		return Bool(false)
-	}
-	retryable, ok := retryMap["retryable"].(bool)
-	if !ok || !retryable {
-		return Bool(false)
-	}
-
-	maxAttempts, ok := retryMap["maxAttempts"].(int)
-	if !ok || maxAttempts < IntValue(retryTimes) {
-		return Bool(false)
-	}
-	return Bool(true)
-}
-
-func Merge(args ...interface{}) map[string]*string {
-	finalArg := make(map[string]*string)
-	for _, obj := range args {
-		switch obj.(type) {
-		case map[string]*string:
-			arg := obj.(map[string]*string)
-			for key, value := range arg {
-				if value != nil {
-					finalArg[key] = value
-				}
-			}
-		default:
-			byt, _ := json.Marshal(obj)
-			arg := make(map[string]string)
-			err := json.Unmarshal(byt, &arg)
-			if err != nil {
-				return finalArg
-			}
-			for key, value := range arg {
-				if value != "" {
-					finalArg[key] = String(value)
-				}
-			}
-		}
-	}
-
-	return finalArg
 }
 
 func isNil(a interface{}) bool {
@@ -819,44 +654,6 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 
 	}
 	return out
-}
-
-func Retryable(err error) *bool {
-	if err == nil {
-		return Bool(false)
-	}
-	if realErr, ok := err.(*SDKError); ok {
-		if realErr.StatusCode == nil {
-			return Bool(false)
-		}
-		code := IntValue(realErr.StatusCode)
-		return Bool(code >= http.StatusInternalServerError)
-	}
-	return Bool(true)
-}
-
-func GetBackoffTime(backoff interface{}, retrytimes *int) *int {
-	backoffMap, ok := backoff.(map[string]interface{})
-	if !ok {
-		return Int(0)
-	}
-	policy, ok := backoffMap["policy"].(string)
-	if !ok || policy == "no" {
-		return Int(0)
-	}
-
-	period, ok := backoffMap["period"].(int)
-	if !ok || period == 0 {
-		return Int(0)
-	}
-
-	maxTime := math.Pow(2.0, float64(IntValue(retrytimes)))
-	return Int(rand.Intn(int(maxTime-1)) * period)
-}
-
-func Sleep(backoffTime *int) {
-	sleeptime := time.Duration(IntValue(backoffTime)) * time.Second
-	time.Sleep(sleeptime)
 }
 
 func Validate(params interface{}) error {
@@ -1130,41 +927,4 @@ func isFilterType(realType string, filterTypes []string) bool {
 		}
 	}
 	return false
-}
-
-func TransInterfaceToBool(val interface{}) *bool {
-	if val == nil {
-		return nil
-	}
-
-	return Bool(val.(bool))
-}
-
-func TransInterfaceToInt(val interface{}) *int {
-	if val == nil {
-		return nil
-	}
-
-	return Int(val.(int))
-}
-
-func TransInterfaceToString(val interface{}) *string {
-	if val == nil {
-		return nil
-	}
-
-	return String(val.(string))
-}
-
-func Prettify(i interface{}) string {
-	resp, _ := json.MarshalIndent(i, "", "   ")
-	return string(resp)
-}
-
-func ToInt(a *int32) *int {
-	return Int(int(Int32Value(a)))
-}
-
-func ToInt32(a *int) *int32 {
-	return Int32(int32(IntValue(a)))
 }
