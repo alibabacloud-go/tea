@@ -6,9 +6,9 @@ import (
 )
 
 func Test_isNil(t *testing.T) {
+	var req *http.Request
 	isnil := isNil(nil)
 	AssertEqual(t, true, isnil)
-	var req *http.Request
 	isnil = isNil(req)
 	AssertEqual(t, true, isnil)
 	AssertNil(t, nil)

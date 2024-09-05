@@ -1,4 +1,4 @@
-package tea
+package dara
 
 import (
 	"bytes"
@@ -41,6 +41,7 @@ DLvYCDUKvOj3GzsV1dtBwWuHBaZEafQDAiEAtTnrel//7z5/U55ow4BW0gmrkQM9
 bXIhEZ59zryZzl0CIQDFmBqRCu9eshecCP7kd3n88IjopSTOV4iUypBfyXcRnwIg
 eXNxUx+BCu2We36+c0deE2+vizL1s6f5XhE6l4bqtiM=
 -----END RSA PRIVATE KEY-----`
+
 var cert = `-----BEGIN CERTIFICATE-----
 MIIBvDCCAWYCCQDKjNYQxar0mjANBgkqhkiG9w0BAQsFADBlMQswCQYDVQQGEwJh
 czEMMAoGA1UECAwDYXNmMQwwCgYDVQQHDANzYWQxCzAJBgNVBAoMAnNkMQ0wCwYD
@@ -53,6 +54,7 @@ mwi96Is7P0ZxzybaZlLGy3aoYgjTSxymIQIDAQABMA0GCSqGSIb3DQEBCwUAA0EA
 ZjePopbFugNK0US1MM48V1S2petIsEcxbZBEk/wGqIzrY4RCFKMtbtPSgTDUl3D9
 XePemktG22a54ItVJ5FpcQ==
 -----END CERTIFICATE-----`
+
 var ca = `-----BEGIN CERTIFICATE-----
 MIIBuDCCAWICCQCLw4OWpjlJCDANBgkqhkiG9w0BAQsFADBjMQswCQYDVQQGEwJm
 ZDEMMAoGA1UECAwDYXNkMQswCQYDVQQHDAJxcjEKMAgGA1UECgwBZjEMMAoGA1UE
@@ -480,7 +482,7 @@ func Test_GetBackoffTime(t *testing.T) {
 	ms = GetBackoffTime(backoff, Int(1))
 	utils.AssertEqual(t, 0, IntValue(ms))
 
-	Sleep(Int(1))
+	Sleep(1)
 
 	backoff["period"] = 3
 	ms = GetBackoffTime(backoff, Int(1))
@@ -742,6 +744,7 @@ func Test_ToString(t *testing.T) {
 }
 
 func Test_Validate(t *testing.T) {
+	var tmp *validateTest
 	num := 3
 	config := &validateTest{
 		Num1: &num,
@@ -751,8 +754,6 @@ func Test_Validate(t *testing.T) {
 
 	err = Validate(new(validateTest))
 	utils.AssertEqual(t, err.Error(), "num1 should be setted")
-
-	var tmp *validateTest
 	err = Validate(tmp)
 	utils.AssertNil(t, err)
 
@@ -909,4 +910,252 @@ func Test_TransInt32AndInt(t *testing.T) {
 
 	b := ToInt32(a)
 	utils.AssertEqual(t, Int32Value(b), int32(10))
+}
+
+func Test_Default(t *testing.T) {
+	a := ToInt(Int32(10))
+	utils.AssertEqual(t, IntValue(a), 10)
+
+	b := ToInt32(a)
+	utils.AssertEqual(t, Int32Value(b), int32(10))
+}
+
+func TestToBytes(t *testing.T) {
+	tests := []struct {
+		input        string
+		encodingType string
+		expected     []byte
+	}{
+		{"Hello, World!", "utf8", []byte("Hello, World!")},
+		{"SGVsbG8sIFdvcmxkIQ==", "base64", []byte("Hello, World!")},
+		{"48656c6c6f2c20576f726c6421", "hex", []byte("Hello, World!")},
+		{"invalid base64", "base64", nil},
+		{"invalid hex", "hex", nil},
+		{"unsupported", "unsupported", nil},
+	}
+
+	for _, tt := range tests {
+		result := ToBytes(tt.input, tt.encodingType)
+
+		if !reflect.DeepEqual(result, tt.expected) {
+			t.Errorf("ToBytes(%q, %q) = %v, want %v",
+				tt.input, tt.encodingType, result, tt.expected)
+		}
+	}
+}
+
+func TestForceInt(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected int
+	}{
+		{int(42), 42},
+		{int(-10), -10},
+		{nil, 0}, // nil should return zero value for int
+	}
+
+	for _, test := range tests {
+		result := ForceInt(test.input)
+		if result != test.expected {
+			t.Errorf("ForceInt(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceBoolean(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected bool
+	}{
+		{true, true},
+		{false, false},
+		{nil, false}, // nil should return zero value for bool
+	}
+
+	for _, test := range tests {
+		result := ForceBoolean(test.input)
+		if result != test.expected {
+			t.Errorf("ForceBoolean(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceInt32(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected int32
+	}{
+		{int32(42), 42},
+		{int32(-10), -10},
+		{nil, 0}, // nil should return zero value for int32
+	}
+
+	for _, test := range tests {
+		result := ForceInt32(test.input)
+		if result != test.expected {
+			t.Errorf("ForceInt32(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceUInt32(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected uint32
+	}{
+		{uint32(100), 100},
+		{uint32(0), 0},
+		{nil, 0}, // nil should return zero value for uint32
+	}
+
+	for _, test := range tests {
+		result := ForceUInt32(test.input)
+		if result != test.expected {
+			t.Errorf("ForceUInt32(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceInt16(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected int16
+	}{
+		{int16(12345), 12345},
+		{int16(-543), -543},
+		{nil, 0}, // nil should return zero value for int16
+	}
+
+	for _, test := range tests {
+		result := ForceInt16(test.input)
+		if result != test.expected {
+			t.Errorf("ForceInt16(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceUInt16(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected uint16
+	}{
+		{uint16(65535), 65535},
+		{uint16(1), 1},
+		{nil, 0}, // nil should return zero value for uint16
+	}
+
+	for _, test := range tests {
+		result := ForceUInt16(test.input)
+		if result != test.expected {
+			t.Errorf("ForceUInt16(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceInt8(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected int8
+	}{
+		{int8(127), 127},
+		{int8(-128), -128},
+		{nil, 0}, // nil should return zero value for int8
+	}
+
+	for _, test := range tests {
+		result := ForceInt8(test.input)
+		if result != test.expected {
+			t.Errorf("ForceInt8(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceUInt8(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected uint8
+	}{
+		{uint8(255), 255},
+		{uint8(0), 0},
+		{nil, 0}, // nil should return zero value for uint8
+	}
+
+	for _, test := range tests {
+		result := ForceUInt8(test.input)
+		if result != test.expected {
+			t.Errorf("ForceUInt8(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceFloat32(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected float32
+	}{
+		{float32(3.14), 3.14},
+		{float32(-2.71), -2.71},
+		{nil, 0}, // nil should return zero value for float32
+	}
+
+	for _, test := range tests {
+		result := ForceFloat32(test.input)
+		if result != test.expected {
+			t.Errorf("ForceFloat32(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceFloat64(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected float64
+	}{
+		{float64(2.718), 2.718},
+		{float64(-3.14), -3.14},
+		{nil, 0}, // nil should return zero value for float64
+	}
+
+	for _, test := range tests {
+		result := ForceFloat64(test.input)
+		if result != test.expected {
+			t.Errorf("ForceFloat64(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceInt64(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected int64
+	}{
+		{int64(123456789), 123456789},
+		{int64(-987654321), -987654321},
+		{nil, 0}, // nil should return zero value for int64
+	}
+
+	for _, test := range tests {
+		result := ForceInt64(test.input)
+		if result != test.expected {
+			t.Errorf("ForceInt64(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestForceUint64(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected uint64
+	}{
+		{uint64(123456789), 123456789},
+		{uint64(0), 0},
+		{nil, 0}, // nil should return zero value for uint64
+	}
+
+	for _, test := range tests {
+		result := ForceUint64(test.input)
+		if result != test.expected {
+			t.Errorf("ForceUint64(%v) = %v; want %v", test.input, result, test.expected)
+		}
+	}
 }
