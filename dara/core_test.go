@@ -1,4 +1,4 @@
-package tea
+package dara
 
 import (
 	"bytes"
@@ -446,7 +446,7 @@ func Test_GetBackoffTime(t *testing.T) {
 	ms = GetBackoffTime(backoff, Int(1))
 	utils.AssertEqual(t, 0, IntValue(ms))
 
-	Sleep(Int(1))
+	Sleep(1)
 
 	backoff["period"] = 3
 	ms = GetBackoffTime(backoff, Int(1))
@@ -909,4 +909,36 @@ func Test_TransInt32AndInt(t *testing.T) {
 
 	b := ToInt32(a)
 	utils.AssertEqual(t, Int32Value(b), int32(10))
+}
+
+func Test_Default(t *testing.T) {
+	a := ToInt(Int32(10))
+	utils.AssertEqual(t, IntValue(a), 10)
+
+	b := ToInt32(a)
+	utils.AssertEqual(t, Int32Value(b), int32(10))
+}
+
+func TestToBytes(t *testing.T) {
+	tests := []struct {
+		input        string
+		encodingType string
+		expected     []byte
+	}{
+		{"Hello, World!", "utf8", []byte("Hello, World!")},
+		{"SGVsbG8sIFdvcmxkIQ==", "base64", []byte("Hello, World!")},
+		{"48656c6c6f2c20576f726c6421", "hex", []byte("Hello, World!")},
+		{"invalid base64", "base64", nil},
+		{"invalid hex", "hex", nil},
+		{"unsupported", "unsupported", nil},
+	}
+
+	for _, tt := range tests {
+		result := ToBytes(tt.input, tt.encodingType)
+
+		if !reflect.DeepEqual(result, tt.expected) {
+			t.Errorf("ToBytes(%q, %q) = %v, want %v",
+				tt.input, tt.encodingType, result, tt.expected)
+		}
+	}
 }

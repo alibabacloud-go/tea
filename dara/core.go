@@ -1,4 +1,4 @@
-package tea
+package dara
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,10 +43,7 @@ var basicTypes = []string{
 // Verify whether the parameters meet the requirements
 var validateParams = []string{"require", "pattern", "maxLength", "minLength", "maximum", "minimum", "maxItems", "minItems"}
 
-// CastError is used for cast type fails
-type CastError struct {
-	Message *string
-}
+var clientPool = &sync.Map{}
 
 // Request is used wrap http request
 type Request struct {
@@ -65,18 +63,6 @@ type Response struct {
 	StatusCode    *int
 	StatusMessage *string
 	Headers       map[string]*string
-}
-
-// SDKError struct is used save error code and message
-type SDKError struct {
-	Code               *string
-	StatusCode         *int
-	Message            *string
-	Data               *string
-	Stack              *string
-	errMsg             *string
-	Description        *string
-	AccessDeniedDetail map[string]interface{}
 }
 
 // RuntimeObject is used for converting http configuration
@@ -104,8 +90,6 @@ type teaClient struct {
 	httpClient *http.Client
 	ifInit     bool
 }
-
-var clientPool = &sync.Map{}
 
 func (r *RuntimeObject) getClientTag(domain string) string {
 	return strconv.FormatBool(BoolValue(r.IgnoreSSL)) + strconv.Itoa(IntValue(r.ReadTimeout)) +
@@ -146,13 +130,6 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 	return runtimeObject
 }
 
-// NewCastError is used for cast type fails
-func NewCastError(message *string) (err error) {
-	return &CastError{
-		Message: message,
-	}
-}
-
 // NewRequest is used shortly create Request
 func NewRequest() (req *Request) {
 	return &Request{
@@ -169,91 +146,6 @@ func NewResponse(httpResponse *http.Response) (res *Response) {
 	res.StatusCode = Int(httpResponse.StatusCode)
 	res.StatusMessage = String(httpResponse.Status)
 	return
-}
-
-// NewSDKError is used for shortly create SDKError object
-func NewSDKError(obj map[string]interface{}) *SDKError {
-	err := &SDKError{}
-	if val, ok := obj["code"].(int); ok {
-		err.Code = String(strconv.Itoa(val))
-	} else if val, ok := obj["code"].(string); ok {
-		err.Code = String(val)
-	}
-
-	if obj["message"] != nil {
-		err.Message = String(obj["message"].(string))
-	}
-	if obj["description"] != nil {
-		err.Description = String(obj["description"].(string))
-	}
-	if detail := obj["accessDeniedDetail"]; detail != nil {
-		r := reflect.ValueOf(detail)
-		if r.Kind().String() == "map" {
-			res := make(map[string]interface{})
-			tmp := r.MapKeys()
-			for _, key := range tmp {
-				res[key.String()] = r.MapIndex(key).Interface()
-			}
-			err.AccessDeniedDetail = res
-		}
-	}
-	if data := obj["data"]; data != nil {
-		r := reflect.ValueOf(data)
-		if r.Kind().String() == "map" {
-			res := make(map[string]interface{})
-			tmp := r.MapKeys()
-			for _, key := range tmp {
-				res[key.String()] = r.MapIndex(key).Interface()
-			}
-			if statusCode := res["statusCode"]; statusCode != nil {
-				if code, ok := statusCode.(int); ok {
-					err.StatusCode = Int(code)
-				} else if tmp, ok := statusCode.(string); ok {
-					code, err_ := strconv.Atoi(tmp)
-					if err_ == nil {
-						err.StatusCode = Int(code)
-					}
-				} else if code, ok := statusCode.(*int); ok {
-					err.StatusCode = code
-				}
-			}
-		}
-		byt := bytes.NewBuffer([]byte{})
-		jsonEncoder := json.NewEncoder(byt)
-		jsonEncoder.SetEscapeHTML(false)
-		jsonEncoder.Encode(data)
-		err.Data = String(string(bytes.TrimSpace(byt.Bytes())))
-	}
-
-	if statusCode, ok := obj["statusCode"].(int); ok {
-		err.StatusCode = Int(statusCode)
-	} else if status, ok := obj["statusCode"].(string); ok {
-		statusCode, err_ := strconv.Atoi(status)
-		if err_ == nil {
-			err.StatusCode = Int(statusCode)
-		}
-	}
-
-	return err
-}
-
-// Set ErrMsg by msg
-func (err *SDKError) SetErrMsg(msg string) {
-	err.errMsg = String(msg)
-}
-
-func (err *SDKError) Error() string {
-	if err.errMsg == nil {
-		str := fmt.Sprintf("SDKError:\n   StatusCode: %d\n   Code: %s\n   Message: %s\n   Data: %s\n",
-			IntValue(err.StatusCode), StringValue(err.Code), StringValue(err.Message), StringValue(err.Data))
-		err.SetErrMsg(str)
-	}
-	return StringValue(err.errMsg)
-}
-
-// Return message of CastError
-func (err *CastError) Error() string {
-	return StringValue(err.Message)
 }
 
 // Convert is use convert map[string]interface object to struct
@@ -275,8 +167,8 @@ func Recover(in interface{}) error {
 
 // ReadBody is used read response body
 func (response *Response) ReadBody() (body []byte, err error) {
-	defer response.Body.Close()
 	var buffer [512]byte
+	defer response.Body.Close()
 	result := bytes.NewBuffer(nil)
 
 	for {
@@ -401,7 +293,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 
 	response = NewResponse(res)
 	fieldMap["{code}"] = strconv.Itoa(res.StatusCode)
-	fieldMap["{res_headers}"] = transToString(res.Header)
+	fieldMap["{res_headers}"] = Stringify(res.Header)
 	debugLog("< HTTP/1.1 %s", res.Status)
 	for key, value := range res.Header {
 		debugLog("< %s: %s", key, strings.Join(value, ""))
@@ -488,11 +380,6 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 	return trans, nil
 }
 
-func transToString(object interface{}) string {
-	byt, _ := json.Marshal(object)
-	return string(byt)
-}
-
 func putMsgToMap(fieldMap map[string]string, request *http.Request) {
 	fieldMap["{host}"] = request.Host
 	fieldMap["{method}"] = request.Method
@@ -501,7 +388,7 @@ func putMsgToMap(fieldMap map[string]string, request *http.Request) {
 	fieldMap["{version}"] = strings.Split(request.Proto, "/")[1]
 	hostname, _ := os.Hostname()
 	fieldMap["{hostname}"] = hostname
-	fieldMap["{req_headers}"] = transToString(request.Header)
+	fieldMap["{req_headers}"] = Stringify(request.Header)
 	fieldMap["{target}"] = request.URL.Path + request.URL.RawQuery
 }
 
@@ -666,6 +553,16 @@ func isNil(a interface{}) bool {
 	return vi.IsNil()
 }
 
+func Default(inputValue interface{}, defaultValue interface{}) (_result interface{}) {
+	if isNil(inputValue) {
+		_result = defaultValue
+		return _result
+	}
+
+	_result = inputValue
+	return _result
+}
+
 func ToMap(args ...interface{}) map[string]interface{} {
 	isNotNil := false
 	finalArg := make(map[string]interface{})
@@ -821,20 +718,6 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 	return out
 }
 
-func Retryable(err error) *bool {
-	if err == nil {
-		return Bool(false)
-	}
-	if realErr, ok := err.(*SDKError); ok {
-		if realErr.StatusCode == nil {
-			return Bool(false)
-		}
-		code := IntValue(realErr.StatusCode)
-		return Bool(code >= http.StatusInternalServerError)
-	}
-	return Bool(true)
-}
-
 func GetBackoffTime(backoff interface{}, retrytimes *int) *int {
 	backoffMap, ok := backoff.(map[string]interface{})
 	if !ok {
@@ -854,8 +737,8 @@ func GetBackoffTime(backoff interface{}, retrytimes *int) *int {
 	return Int(rand.Intn(int(maxTime-1)) * period)
 }
 
-func Sleep(backoffTime *int) {
-	sleeptime := time.Duration(IntValue(backoffTime)) * time.Second
+func Sleep(backoffTime int) {
+	sleeptime := time.Duration(backoffTime) * time.Second
 	time.Sleep(sleeptime)
 }
 
@@ -1167,4 +1050,25 @@ func ToInt(a *int32) *int {
 
 func ToInt32(a *int) *int32 {
 	return Int32(int32(IntValue(a)))
+}
+
+func ToBytes(s, encodingType string) []byte {
+	switch encodingType {
+	case "utf8":
+		return []byte(s)
+	case "base64":
+		data, err := base64.StdEncoding.DecodeString(s)
+		if err != nil {
+			return nil
+		}
+		return data
+	case "hex":
+		data, err := hex.DecodeString(s)
+		if err != nil {
+			return nil
+		}
+		return data
+	default:
+		return nil
+	}
 }
