@@ -1,16 +1,16 @@
-package tea
+package dara
 
 import (
+	"bytes"
 	"encoding/json"
+	jsoniter "github.com/json-iterator/go"
+	"github.com/modern-go/reflect2"
 	"io"
 	"math"
 	"reflect"
 	"strconv"
 	"strings"
 	"unsafe"
-
-	jsoniter "github.com/json-iterator/go"
-	"github.com/modern-go/reflect2"
 )
 
 const maxUint = ^uint(0)
@@ -330,4 +330,40 @@ func (decoder *nullableFuzzyFloat64Decoder) Decode(ptr unsafe.Pointer, iter *jso
 	default:
 		iter.ReportError("nullableFuzzyFloat64Decoder", "not number or string")
 	}
+}
+
+func Stringify(m interface{}) string {
+	byt, _ := json.Marshal(m)
+	return string(byt)
+}
+
+func ParseJSON(a string) interface{} {
+	mapTmp := make(map[string]interface{})
+	d := json.NewDecoder(bytes.NewReader([]byte(a)))
+	d.UseNumber()
+	err := d.Decode(&mapTmp)
+	if err == nil {
+		return mapTmp
+	}
+
+	sliceTmp := make([]interface{}, 0)
+	d = json.NewDecoder(bytes.NewReader([]byte(a)))
+	d.UseNumber()
+	err = d.Decode(&sliceTmp)
+	if err == nil {
+		return sliceTmp
+	}
+
+	if num, err := strconv.Atoi(a); err == nil {
+		return num
+	}
+
+	if ok, err := strconv.ParseBool(a); err == nil {
+		return ok
+	}
+
+	if floa64tVal, err := strconv.ParseFloat(a, 64); err == nil {
+		return floa64tVal
+	}
+	return nil
 }
