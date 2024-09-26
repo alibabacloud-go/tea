@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/alibabacloud-go/tea/utils"
+	"github.com/alibabacloud-go/tea/v2/utils"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/modern-go/reflect2"
 )
