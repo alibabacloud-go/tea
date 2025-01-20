@@ -25,9 +25,13 @@ import (
 
 	"github.com/alibabacloud-go/debug/debug"
 	"github.com/alibabacloud-go/tea/utils"
+	util "github.com/alibabacloud-go/tea-utils/v2/service"
 
 	"golang.org/x/net/proxy"
 )
+
+type RuntimeOptions = util.RuntimeOptions
+type ExtendsParameters = util.ExtendsParameters
 
 var debugLog = debug.Init("dara")
 
@@ -62,11 +66,6 @@ type Response struct {
 	StatusCode    *int
 	StatusMessage *string
 	Headers       map[string]*string
-}
-
-type ExtendsParameters struct {
-	Headers map[string]*string `json:"headers,omitempty" xml:"headers,omitempty"`
-	Queries map[string]*string `json:"queries,omitempty" xml:"queries,omitempty"`
 }
 
 // RuntimeObject is used for converting http configuration
@@ -202,8 +201,10 @@ func getDaraClient(tag string) *daraClient {
 }
 
 // DoRequest is used send request to server
-func DoRequest(request *Request, requestRuntime map[string]interface{}) (response *Response, err error) {
-	runtimeObject := NewRuntimeObject(requestRuntime)
+func DoRequest(request *Request, runtimeObject *RuntimeObject) (response *Response, err error) {
+	if(runtimeObject == nil) {
+		runtimeObject = &RuntimeObject{}
+	}
 	fieldMap := make(map[string]string)
 	utils.InitLogMsg(fieldMap)
 	defer func() {

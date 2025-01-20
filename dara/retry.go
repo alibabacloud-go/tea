@@ -19,7 +19,7 @@ type RetryPolicyContext struct {
 	RetriesAttempted int
 	HttpRequest      *Request  // placeholder for actual http.Request type
 	HttpResponse     *Response // placeholder for actual http.Response type
-	Exception        BaseError
+	Exception        error
 }
 
 // BackoffPolicy interface with a method to get delay time

@@ -509,7 +509,7 @@ func Test_DoRequest(t *testing.T) {
 		"tea": String("test"),
 	}
 	runtimeObj["httpsProxy"] = "# #%gfdf"
-	resp, err = DoRequest(request, runtimeObj)
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNil(t, resp)
 	utils.AssertContains(t, err.Error(), `invalid URL escape "%gf"`)
 
@@ -517,18 +517,18 @@ func Test_DoRequest(t *testing.T) {
 	request.Headers["tea"] = String("")
 	request.Headers["content-length"] = nil
 	runtimeObj["httpsProxy"] = "http://someuser:somepassword@ecs.aliyun.com"
-	resp, err = DoRequest(request, runtimeObj)
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `Internal error`, err.Error())
 
 	request.Headers["host"] = String("tea-cn-hangzhou.aliyuncs.com:80")
 	request.Headers["user-agent"] = String("test")
-	resp, err = DoRequest(request, runtimeObj)
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `Internal error`, err.Error())
 
 	runtimeObj["socks5Proxy"] = "# #%gfdf"
-	resp, err = DoRequest(request, runtimeObj)
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNil(t, resp)
 	utils.AssertContains(t, err.Error(), ` invalid URL escape "%gf"`)
 
@@ -539,7 +539,7 @@ func Test_DoRequest(t *testing.T) {
 	}
 	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@ecs.aliyun.com"
 	runtimeObj["localAddr"] = "127.0.0.1"
-	resp, err = DoRequest(request, runtimeObj)
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
 
@@ -547,14 +547,14 @@ func Test_DoRequest(t *testing.T) {
 	runtimeObj["cert"] = "private certification"
 	runtimeObj["ca"] = "private ca"
 	runtimeObj["ignoreSSL"] = true
-	resp, err = DoRequest(request, runtimeObj)
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNil(t, err)
 	utils.AssertNotNil(t, resp)
 
 	// update the host is to restart a client
 	request.Headers["host"] = String("a.com")
 	runtimeObj["ignoreSSL"] = false
-	resp, err = DoRequest(request, runtimeObj)
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNotNil(t, err)
 	utils.AssertEqual(t, "tls: failed to find any PEM data in certificate input", err.Error())
 	utils.AssertNil(t, resp)
@@ -564,20 +564,20 @@ func Test_DoRequest(t *testing.T) {
 	runtimeObj["key"] = key
 	runtimeObj["cert"] = cert
 	runtimeObj["ca"] = "private ca"
-	_, err = DoRequest(request, runtimeObj)
+	_, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNotNil(t, err)
 	utils.AssertEqual(t, "Failed to parse root certificate", err.Error())
 
 	// update the host is to restart a client
 	request.Headers["host"] = String("c.com")
 	runtimeObj["ca"] = ca
-	resp, err = DoRequest(request, runtimeObj)
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
 
 	request.Protocol = String("HTTP")
 	runtimeObj["ignoreSSL"] = false
-	resp, err = DoRequest(request, runtimeObj)
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
 
@@ -591,7 +591,7 @@ func Test_DoRequest(t *testing.T) {
 	request.Protocol = String("http")
 	request.Port = Int(1080)
 	request.Headers["host"] = String("tea-cn-hangzhou.aliyuncs.com")
-	resp, err = DoRequest(request, runtimeObj)
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `Internal error`, err.Error())
 }
@@ -608,9 +608,9 @@ func Test_DoRequestWithConcurrent(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func(readTimeout int) {
-			runtime := map[string]interface{}{
+			runtime := NewRuntimeObject(map[string]interface{}{
 				"readTimeout": readTimeout,
-			}
+			})
 			for j := 0; j < 50; j++ {
 				wg.Add(1)
 				go func() {
