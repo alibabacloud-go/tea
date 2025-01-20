@@ -17,8 +17,8 @@ type SSEEvent struct {
 }
 
 // 解析单个事件
-func parseEvent(eventLines []string) SSEEvent {
-	var event SSEEvent
+func parseEvent(eventLines []string) *SSEEvent {
+	var event *SSEEvent
 	var data string
 	var id string
 
@@ -77,8 +77,8 @@ func ReadAsString(body io.Reader) (string, error) {
 	return string(byt), nil
 }
 
-func ReadAsSSE(body io.ReadCloser) (<-chan SSEEvent, <-chan error) {
-	eventChannel := make(chan SSEEvent)
+func ReadAsSSE(body io.ReadCloser) (<-chan *SSEEvent, <-chan error) {
+	eventChannel := make(chan *SSEEvent)
 
 	// 启动 Goroutine 解析 SSE 数据
 	go func() {
