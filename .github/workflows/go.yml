@@ -26,6 +26,8 @@ jobs:
 
     - name: Build Darabonba
       run: go build ./dara
+    - name: Build Tea
+      run: go build ./tea
     - name: Build Util
       run: go build ./utils
 
