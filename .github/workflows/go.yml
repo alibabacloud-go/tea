@@ -24,13 +24,15 @@ jobs:
     - name: Check out code into the Go module directory
       uses: actions/checkout@v2
 
+    - name: Build Darabonba
+      run: go build ./dara
     - name: Build Tea
       run: go build ./tea
     - name: Build Util
       run: go build ./utils
 
     - name: Test
-      run: go test -race -coverprofile=coverage.txt -covermode=atomic ./tea/... ./utils/...
+      run: go test -race -coverprofile=coverage.txt -covermode=atomic ./dara/... ./utils/... ./tea/...
     
     - name: CodeCov
       run: bash <(curl -s https://codecov.io/bash)

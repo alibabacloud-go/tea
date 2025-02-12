@@ -1,4 +1,4 @@
-package tea
+package dara
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +18,6 @@ import (
 	"net/url"
 	"os"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,11 +25,15 @@ import (
 
 	"github.com/alibabacloud-go/debug/debug"
 	"github.com/alibabacloud-go/tea/utils"
+	util "github.com/alibabacloud-go/tea-utils/v2/service"
 
 	"golang.org/x/net/proxy"
 )
 
-var debugLog = debug.Init("tea")
+type RuntimeOptions = util.RuntimeOptions
+type ExtendsParameters = util.ExtendsParameters
+
+var debugLog = debug.Init("dara")
 
 var hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
 	return fn
@@ -42,10 +46,7 @@ var basicTypes = []string{
 // Verify whether the parameters meet the requirements
 var validateParams = []string{"require", "pattern", "maxLength", "minLength", "maximum", "minimum", "maxItems", "minItems"}
 
-// CastError is used for cast type fails
-type CastError struct {
-	Message *string
-}
+var clientPool = &sync.Map{}
 
 // Request is used wrap http request
 type Request struct {
@@ -67,45 +68,33 @@ type Response struct {
 	Headers       map[string]*string
 }
 
-// SDKError struct is used save error code and message
-type SDKError struct {
-	Code               *string
-	StatusCode         *int
-	Message            *string
-	Data               *string
-	Stack              *string
-	errMsg             *string
-	Description        *string
-	AccessDeniedDetail map[string]interface{}
-}
-
 // RuntimeObject is used for converting http configuration
 type RuntimeObject struct {
-	IgnoreSSL      *bool                  `json:"ignoreSSL" xml:"ignoreSSL"`
-	ReadTimeout    *int                   `json:"readTimeout" xml:"readTimeout"`
-	ConnectTimeout *int                   `json:"connectTimeout" xml:"connectTimeout"`
-	LocalAddr      *string                `json:"localAddr" xml:"localAddr"`
-	HttpProxy      *string                `json:"httpProxy" xml:"httpProxy"`
-	HttpsProxy     *string                `json:"httpsProxy" xml:"httpsProxy"`
-	NoProxy        *string                `json:"noProxy" xml:"noProxy"`
-	MaxIdleConns   *int                   `json:"maxIdleConns" xml:"maxIdleConns"`
-	Key            *string                `json:"key" xml:"key"`
-	Cert           *string                `json:"cert" xml:"cert"`
-	CA             *string                `json:"ca" xml:"ca"`
-	Socks5Proxy    *string                `json:"socks5Proxy" xml:"socks5Proxy"`
-	Socks5NetWork  *string                `json:"socks5NetWork" xml:"socks5NetWork"`
-	Listener       utils.ProgressListener `json:"listener" xml:"listener"`
-	Tracker        *utils.ReaderTracker   `json:"tracker" xml:"tracker"`
-	Logger         *utils.Logger          `json:"logger" xml:"logger"`
+	IgnoreSSL         *bool                  `json:"ignoreSSL" xml:"ignoreSSL"`
+	ReadTimeout       *int                   `json:"readTimeout" xml:"readTimeout"`
+	ConnectTimeout    *int                   `json:"connectTimeout" xml:"connectTimeout"`
+	LocalAddr         *string                `json:"localAddr" xml:"localAddr"`
+	HttpProxy         *string                `json:"httpProxy" xml:"httpProxy"`
+	HttpsProxy        *string                `json:"httpsProxy" xml:"httpsProxy"`
+	NoProxy           *string                `json:"noProxy" xml:"noProxy"`
+	MaxIdleConns      *int                   `json:"maxIdleConns" xml:"maxIdleConns"`
+	Key               *string                `json:"key" xml:"key"`
+	Cert              *string                `json:"cert" xml:"cert"`
+	Ca                *string                `json:"ca" xml:"ca"`
+	Socks5Proxy       *string                `json:"socks5Proxy" xml:"socks5Proxy"`
+	Socks5NetWork     *string                `json:"socks5NetWork" xml:"socks5NetWork"`
+	Listener          utils.ProgressListener `json:"listener" xml:"listener"`
+	Tracker           *utils.ReaderTracker   `json:"tracker" xml:"tracker"`
+	Logger            *utils.Logger          `json:"logger" xml:"logger"`
+	RetryOptions      *RetryOptions          `json:"retryOptions" xml:"retryOptions"`
+	ExtendsParameters *ExtendsParameters     `json:"extendsParameters,omitempty" xml:"extendsParameters,omitempty"`
 }
 
-type teaClient struct {
+type daraClient struct {
 	sync.Mutex
 	httpClient *http.Client
 	ifInit     bool
 }
-
-var clientPool = &sync.Map{}
 
 func (r *RuntimeObject) getClientTag(domain string) string {
 	return strconv.FormatBool(BoolValue(r.IgnoreSSL)) + strconv.Itoa(IntValue(r.ReadTimeout)) +
@@ -132,7 +121,7 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 		Socks5NetWork:  TransInterfaceToString(runtime["socks5NetWork"]),
 		Key:            TransInterfaceToString(runtime["key"]),
 		Cert:           TransInterfaceToString(runtime["cert"]),
-		CA:             TransInterfaceToString(runtime["ca"]),
+		Ca:             TransInterfaceToString(runtime["ca"]),
 	}
 	if runtime["listener"] != nil {
 		runtimeObject.Listener = runtime["listener"].(utils.ProgressListener)
@@ -144,13 +133,6 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 		runtimeObject.Logger = runtime["logger"].(*utils.Logger)
 	}
 	return runtimeObject
-}
-
-// NewCastError is used for cast type fails
-func NewCastError(message *string) (err error) {
-	return &CastError{
-		Message: message,
-	}
 }
 
 // NewRequest is used shortly create Request
@@ -169,91 +151,6 @@ func NewResponse(httpResponse *http.Response) (res *Response) {
 	res.StatusCode = Int(httpResponse.StatusCode)
 	res.StatusMessage = String(httpResponse.Status)
 	return
-}
-
-// NewSDKError is used for shortly create SDKError object
-func NewSDKError(obj map[string]interface{}) *SDKError {
-	err := &SDKError{}
-	if val, ok := obj["code"].(int); ok {
-		err.Code = String(strconv.Itoa(val))
-	} else if val, ok := obj["code"].(string); ok {
-		err.Code = String(val)
-	}
-
-	if obj["message"] != nil {
-		err.Message = String(obj["message"].(string))
-	}
-	if obj["description"] != nil {
-		err.Description = String(obj["description"].(string))
-	}
-	if detail := obj["accessDeniedDetail"]; detail != nil {
-		r := reflect.ValueOf(detail)
-		if r.Kind().String() == "map" {
-			res := make(map[string]interface{})
-			tmp := r.MapKeys()
-			for _, key := range tmp {
-				res[key.String()] = r.MapIndex(key).Interface()
-			}
-			err.AccessDeniedDetail = res
-		}
-	}
-	if data := obj["data"]; data != nil {
-		r := reflect.ValueOf(data)
-		if r.Kind().String() == "map" {
-			res := make(map[string]interface{})
-			tmp := r.MapKeys()
-			for _, key := range tmp {
-				res[key.String()] = r.MapIndex(key).Interface()
-			}
-			if statusCode := res["statusCode"]; statusCode != nil {
-				if code, ok := statusCode.(int); ok {
-					err.StatusCode = Int(code)
-				} else if tmp, ok := statusCode.(string); ok {
-					code, err_ := strconv.Atoi(tmp)
-					if err_ == nil {
-						err.StatusCode = Int(code)
-					}
-				} else if code, ok := statusCode.(*int); ok {
-					err.StatusCode = code
-				}
-			}
-		}
-		byt := bytes.NewBuffer([]byte{})
-		jsonEncoder := json.NewEncoder(byt)
-		jsonEncoder.SetEscapeHTML(false)
-		jsonEncoder.Encode(data)
-		err.Data = String(string(bytes.TrimSpace(byt.Bytes())))
-	}
-
-	if statusCode, ok := obj["statusCode"].(int); ok {
-		err.StatusCode = Int(statusCode)
-	} else if status, ok := obj["statusCode"].(string); ok {
-		statusCode, err_ := strconv.Atoi(status)
-		if err_ == nil {
-			err.StatusCode = Int(statusCode)
-		}
-	}
-
-	return err
-}
-
-// Set ErrMsg by msg
-func (err *SDKError) SetErrMsg(msg string) {
-	err.errMsg = String(msg)
-}
-
-func (err *SDKError) Error() string {
-	if err.errMsg == nil {
-		str := fmt.Sprintf("SDKError:\n   StatusCode: %d\n   Code: %s\n   Message: %s\n   Data: %s\n",
-			IntValue(err.StatusCode), StringValue(err.Code), StringValue(err.Message), StringValue(err.Data))
-		err.SetErrMsg(str)
-	}
-	return StringValue(err.errMsg)
-}
-
-// Return message of CastError
-func (err *CastError) Error() string {
-	return StringValue(err.Message)
 }
 
 // Convert is use convert map[string]interface object to struct
@@ -275,8 +172,8 @@ func Recover(in interface{}) error {
 
 // ReadBody is used read response body
 func (response *Response) ReadBody() (body []byte, err error) {
-	defer response.Body.Close()
 	var buffer [512]byte
+	defer response.Body.Close()
 	result := bytes.NewBuffer(nil)
 
 	for {
@@ -291,21 +188,23 @@ func (response *Response) ReadBody() (body []byte, err error) {
 	return result.Bytes(), nil
 }
 
-func getTeaClient(tag string) *teaClient {
+func getDaraClient(tag string) *daraClient {
 	client, ok := clientPool.Load(tag)
 	if client == nil && !ok {
-		client = &teaClient{
+		client = &daraClient{
 			httpClient: &http.Client{},
 			ifInit:     false,
 		}
 		clientPool.Store(tag, client)
 	}
-	return client.(*teaClient)
+	return client.(*daraClient)
 }
 
 // DoRequest is used send request to server
-func DoRequest(request *Request, requestRuntime map[string]interface{}) (response *Response, err error) {
-	runtimeObject := NewRuntimeObject(requestRuntime)
+func DoRequest(request *Request, runtimeObject *RuntimeObject) (response *Response, err error) {
+	if(runtimeObject == nil) {
+		runtimeObject = &RuntimeObject{}
+	}
 	fieldMap := make(map[string]string)
 	utils.InitLogMsg(fieldMap)
 	defer func() {
@@ -351,7 +250,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 	}
 	httpRequest.Host = StringValue(request.Domain)
 
-	client := getTeaClient(runtimeObject.getClientTag(StringValue(request.Domain)))
+	client := getDaraClient(runtimeObject.getClientTag(StringValue(request.Domain)))
 	client.Lock()
 	if !client.ifInit {
 		trans, err := getHttpTransport(request, runtimeObject)
@@ -401,7 +300,7 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 
 	response = NewResponse(res)
 	fieldMap["{code}"] = strconv.Itoa(res.StatusCode)
-	fieldMap["{res_headers}"] = transToString(res.Header)
+	fieldMap["{res_headers}"] = Stringify(res.Header)
 	debugLog("< HTTP/1.1 %s", res.Status)
 	for key, value := range res.Header {
 		debugLog("< %s: %s", key, strings.Join(value, ""))
@@ -430,9 +329,9 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 				}
 				trans.TLSClientConfig.Certificates = []tls.Certificate{cert}
 			}
-			if runtime.CA != nil && StringValue(runtime.CA) != "" {
+			if runtime.Ca != nil && StringValue(runtime.Ca) != "" {
 				clientCertPool := x509.NewCertPool()
-				ok := clientCertPool.AppendCertsFromPEM([]byte(StringValue(runtime.CA)))
+				ok := clientCertPool.AppendCertsFromPEM([]byte(StringValue(runtime.Ca)))
 				if !ok {
 					return nil, errors.New("Failed to parse root certificate")
 				}
@@ -488,11 +387,6 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 	return trans, nil
 }
 
-func transToString(object interface{}) string {
-	byt, _ := json.Marshal(object)
-	return string(byt)
-}
-
 func putMsgToMap(fieldMap map[string]string, request *http.Request) {
 	fieldMap["{host}"] = request.Host
 	fieldMap["{method}"] = request.Method
@@ -501,7 +395,7 @@ func putMsgToMap(fieldMap map[string]string, request *http.Request) {
 	fieldMap["{version}"] = strings.Split(request.Proto, "/")[1]
 	hostname, _ := os.Hostname()
 	fieldMap["{hostname}"] = hostname
-	fieldMap["{req_headers}"] = transToString(request.Header)
+	fieldMap["{req_headers}"] = Stringify(request.Header)
 	fieldMap["{target}"] = request.URL.Path + request.URL.RawQuery
 }
 
@@ -533,7 +427,12 @@ func ToReader(obj interface{}) io.Reader {
 }
 
 func ToString(val interface{}) string {
-	return fmt.Sprintf("%v", val)
+	switch v := val.(type) {
+	case []byte:
+		return string(v) // 将 []byte 转换为字符串
+	default:
+		return fmt.Sprintf("%v", v) // 处理其他类型
+	}
 }
 
 func getHttpProxy(protocol, host string, runtime *RuntimeObject) (proxy *url.URL, err error) {
@@ -658,12 +557,40 @@ func Merge(args ...interface{}) map[string]*string {
 	return finalArg
 }
 
+func IsNil(val interface{}) bool {
+	defer func() {
+		recover()
+	}()
+	if val == nil {
+		return true
+	}
+
+	v := reflect.ValueOf(val)
+	if v.Kind() == reflect.Ptr || v.Kind() == reflect.Slice || v.Kind() == reflect.Map {
+		return v.IsNil()
+	}
+
+	valType := reflect.TypeOf(val)
+	valZero := reflect.Zero(valType)
+	return valZero == v
+}
+
 func isNil(a interface{}) bool {
 	defer func() {
 		recover()
 	}()
 	vi := reflect.ValueOf(a)
 	return vi.IsNil()
+}
+
+func Default(inputValue interface{}, defaultValue interface{}) (_result interface{}) {
+	if IsNil(inputValue) {
+		_result = defaultValue
+		return _result
+	}
+
+	_result = inputValue
+	return _result
 }
 
 func ToMap(args ...interface{}) map[string]interface{} {
@@ -821,20 +748,6 @@ func structToMap(dataValue reflect.Value) map[string]interface{} {
 	return out
 }
 
-func Retryable(err error) *bool {
-	if err == nil {
-		return Bool(false)
-	}
-	if realErr, ok := err.(*SDKError); ok {
-		if realErr.StatusCode == nil {
-			return Bool(false)
-		}
-		code := IntValue(realErr.StatusCode)
-		return Bool(code >= http.StatusInternalServerError)
-	}
-	return Bool(true)
-}
-
 func GetBackoffTime(backoff interface{}, retrytimes *int) *int {
 	backoffMap, ok := backoff.(map[string]interface{})
 	if !ok {
@@ -854,272 +767,9 @@ func GetBackoffTime(backoff interface{}, retrytimes *int) *int {
 	return Int(rand.Intn(int(maxTime-1)) * period)
 }
 
-func Sleep(backoffTime *int) {
-	sleeptime := time.Duration(IntValue(backoffTime)) * time.Second
+func Sleep(backoffTime int) {
+	sleeptime := time.Duration(backoffTime) * time.Second
 	time.Sleep(sleeptime)
-}
-
-func Validate(params interface{}) error {
-	if params == nil {
-		return nil
-	}
-	requestValue := reflect.ValueOf(params)
-	if requestValue.IsNil() {
-		return nil
-	}
-	err := validate(requestValue.Elem())
-	return err
-}
-
-// Verify whether the parameters meet the requirements
-func validate(dataValue reflect.Value) error {
-	if strings.HasPrefix(dataValue.Type().String(), "*") { // Determines whether the input is a structure object or a pointer object
-		if dataValue.IsNil() {
-			return nil
-		}
-		dataValue = dataValue.Elem()
-	}
-	dataType := dataValue.Type()
-	for i := 0; i < dataType.NumField(); i++ {
-		field := dataType.Field(i)
-		valueField := dataValue.Field(i)
-		for _, value := range validateParams {
-			err := validateParam(field, valueField, value)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func validateParam(field reflect.StructField, valueField reflect.Value, tagName string) error {
-	tag, containsTag := field.Tag.Lookup(tagName) // Take out the checked regular expression
-	if containsTag && tagName == "require" {
-		err := checkRequire(field, valueField)
-		if err != nil {
-			return err
-		}
-	}
-	if strings.HasPrefix(field.Type.String(), "[]") { // Verify the parameters of the array type
-		err := validateSlice(field, valueField, containsTag, tag, tagName)
-		if err != nil {
-			return err
-		}
-	} else if valueField.Kind() == reflect.Ptr { // Determines whether it is a pointer object
-		err := validatePtr(field, valueField, containsTag, tag, tagName)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateSlice(field reflect.StructField, valueField reflect.Value, containsregexpTag bool, tag, tagName string) error {
-	if valueField.IsValid() && !valueField.IsNil() { // Determines whether the parameter has a value
-		if containsregexpTag {
-			if tagName == "maxItems" {
-				err := checkMaxItems(field, valueField, tag)
-				if err != nil {
-					return err
-				}
-			}
-
-			if tagName == "minItems" {
-				err := checkMinItems(field, valueField, tag)
-				if err != nil {
-					return err
-				}
-			}
-		}
-
-		for m := 0; m < valueField.Len(); m++ {
-			elementValue := valueField.Index(m)
-			if elementValue.Type().Kind() == reflect.Ptr { // Determines whether the child elements of an array are of a basic type
-				err := validatePtr(field, elementValue, containsregexpTag, tag, tagName)
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func validatePtr(field reflect.StructField, elementValue reflect.Value, containsregexpTag bool, tag, tagName string) error {
-	if elementValue.IsNil() {
-		return nil
-	}
-	if isFilterType(elementValue.Elem().Type().String(), basicTypes) {
-		if containsregexpTag {
-			if tagName == "pattern" {
-				err := checkPattern(field, elementValue.Elem(), tag)
-				if err != nil {
-					return err
-				}
-			}
-
-			if tagName == "maxLength" {
-				err := checkMaxLength(field, elementValue.Elem(), tag)
-				if err != nil {
-					return err
-				}
-			}
-
-			if tagName == "minLength" {
-				err := checkMinLength(field, elementValue.Elem(), tag)
-				if err != nil {
-					return err
-				}
-			}
-
-			if tagName == "maximum" {
-				err := checkMaximum(field, elementValue.Elem(), tag)
-				if err != nil {
-					return err
-				}
-			}
-
-			if tagName == "minimum" {
-				err := checkMinimum(field, elementValue.Elem(), tag)
-				if err != nil {
-					return err
-				}
-			}
-		}
-	} else {
-		err := validate(elementValue)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func checkRequire(field reflect.StructField, valueField reflect.Value) error {
-	name, _ := field.Tag.Lookup("json")
-	strs := strings.Split(name, ",")
-	name = strs[0]
-	if !valueField.IsNil() && valueField.IsValid() {
-		return nil
-	}
-	return errors.New(name + " should be setted")
-}
-
-func checkPattern(field reflect.StructField, valueField reflect.Value, tag string) error {
-	if valueField.IsValid() && valueField.String() != "" {
-		value := valueField.String()
-		r, _ := regexp.Compile("^" + tag + "$")
-		if match := r.MatchString(value); !match { // Determines whether the parameter value satisfies the regular expression or not, and throws an error
-			return errors.New(value + " is not matched " + tag)
-		}
-	}
-	return nil
-}
-
-func checkMaxItems(field reflect.StructField, valueField reflect.Value, tag string) error {
-	if valueField.IsValid() && valueField.String() != "" {
-		maxItems, err := strconv.Atoi(tag)
-		if err != nil {
-			return err
-		}
-		length := valueField.Len()
-		if maxItems < length {
-			errMsg := fmt.Sprintf("The length of %s is %d which is more than %d", field.Name, length, maxItems)
-			return errors.New(errMsg)
-		}
-	}
-	return nil
-}
-
-func checkMinItems(field reflect.StructField, valueField reflect.Value, tag string) error {
-	if valueField.IsValid() {
-		minItems, err := strconv.Atoi(tag)
-		if err != nil {
-			return err
-		}
-		length := valueField.Len()
-		if minItems > length {
-			errMsg := fmt.Sprintf("The length of %s is %d which is less than %d", field.Name, length, minItems)
-			return errors.New(errMsg)
-		}
-	}
-	return nil
-}
-
-func checkMaxLength(field reflect.StructField, valueField reflect.Value, tag string) error {
-	if valueField.IsValid() && valueField.String() != "" {
-		maxLength, err := strconv.Atoi(tag)
-		if err != nil {
-			return err
-		}
-		length := valueField.Len()
-		if valueField.Kind().String() == "string" {
-			length = strings.Count(valueField.String(), "") - 1
-		}
-		if maxLength < length {
-			errMsg := fmt.Sprintf("The length of %s is %d which is more than %d", field.Name, length, maxLength)
-			return errors.New(errMsg)
-		}
-	}
-	return nil
-}
-
-func checkMinLength(field reflect.StructField, valueField reflect.Value, tag string) error {
-	if valueField.IsValid() {
-		minLength, err := strconv.Atoi(tag)
-		if err != nil {
-			return err
-		}
-		length := valueField.Len()
-		if valueField.Kind().String() == "string" {
-			length = strings.Count(valueField.String(), "") - 1
-		}
-		if minLength > length {
-			errMsg := fmt.Sprintf("The length of %s is %d which is less than %d", field.Name, length, minLength)
-			return errors.New(errMsg)
-		}
-	}
-	return nil
-}
-
-func checkMaximum(field reflect.StructField, valueField reflect.Value, tag string) error {
-	if valueField.IsValid() && valueField.String() != "" {
-		maximum, err := strconv.ParseFloat(tag, 64)
-		if err != nil {
-			return err
-		}
-		byt, _ := json.Marshal(valueField.Interface())
-		num, err := strconv.ParseFloat(string(byt), 64)
-		if err != nil {
-			return err
-		}
-		if maximum < num {
-			errMsg := fmt.Sprintf("The size of %s is %f which is greater than %f", field.Name, num, maximum)
-			return errors.New(errMsg)
-		}
-	}
-	return nil
-}
-
-func checkMinimum(field reflect.StructField, valueField reflect.Value, tag string) error {
-	if valueField.IsValid() && valueField.String() != "" {
-		minimum, err := strconv.ParseFloat(tag, 64)
-		if err != nil {
-			return err
-		}
-
-		byt, _ := json.Marshal(valueField.Interface())
-		num, err := strconv.ParseFloat(string(byt), 64)
-		if err != nil {
-			return err
-		}
-		if minimum > num {
-			errMsg := fmt.Sprintf("The size of %s is %f which is less than %f", field.Name, num, minimum)
-			return errors.New(errMsg)
-		}
-	}
-	return nil
 }
 
 // Determines whether realType is in filterTypes
@@ -1165,11 +815,115 @@ func ToInt(a *int32) *int {
 	return Int(int(Int32Value(a)))
 }
 
+func ToInt32(a *int) *int32 {
+	return Int32(int32(IntValue(a)))
+}
+
+func ToBytes(s, encodingType string) []byte {
+	switch encodingType {
+	case "utf8":
+		return []byte(s)
+	case "base64":
+		data, err := base64.StdEncoding.DecodeString(s)
+		if err != nil {
+			return nil
+		}
+		return data
+	case "hex":
+		data, err := hex.DecodeString(s)
+		if err != nil {
+			return nil
+		}
+		return data
+	default:
+		return nil
+	}
+}
+
+func BytesFromString(str string, typeStr string) []byte {
+	switch typeStr {
+	case "utf8":
+		return []byte(str)
+	case "hex":
+		bytes, err := hex.DecodeString(str)
+		if err == nil {
+			return bytes
+		}
+	case "base64":
+		bytes, err := base64.StdEncoding.DecodeString(str)
+		if err == nil {
+			return bytes
+		}
+	}
+
+	// 对于不支持的类型或解码失败，返回 nil
+	return nil
+}
+
 func ForceInt(a interface{}) int {
 	num, _ := a.(int)
 	return num
 }
 
-func ToInt32(a *int) *int32 {
-	return Int32(int32(IntValue(a)))
+func ForceBoolean(a interface{}) bool {
+	b, _ := a.(bool)
+	return b
+}
+
+func ForceInt64(a interface{}) int64 {
+	b, _ := a.(int64)
+	return b
+}
+
+func ForceUint64(a interface{}) uint64 {
+	b, _ := a.(uint64)
+	return b
+}
+
+// ForceInt32 attempts to assert that a is of type int32.
+func ForceInt32(a interface{}) int32 {
+	b, _ := a.(int32)
+	return b
+}
+
+// ForceUInt32 attempts to assert that a is of type uint32.
+func ForceUInt32(a interface{}) uint32 {
+	b, _ := a.(uint32)
+	return b
+}
+
+// ForceInt16 attempts to assert that a is of type int16.
+func ForceInt16(a interface{}) int16 {
+	b, _ := a.(int16)
+	return b
+}
+
+// ForceUInt16 attempts to assert that a is of type uint16.
+func ForceUInt16(a interface{}) uint16 {
+	b, _ := a.(uint16)
+	return b
+}
+
+// ForceInt8 attempts to assert that a is of type int8.
+func ForceInt8(a interface{}) int8 {
+	b, _ := a.(int8)
+	return b
+}
+
+// ForceUInt8 attempts to assert that a is of type uint8.
+func ForceUInt8(a interface{}) uint8 {
+	b, _ := a.(uint8)
+	return b
+}
+
+// ForceFloat32 attempts to assert that a is of type float32.
+func ForceFloat32(a interface{}) float32 {
+	b, _ := a.(float32)
+	return b
+}
+
+// ForceFloat64 attempts to assert that a is of type float64.
+func ForceFloat64(a interface{}) float64 {
+	b, _ := a.(float64)
+	return b
 }
