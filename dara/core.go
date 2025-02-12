@@ -414,6 +414,9 @@ func getNoProxy(protocol string, runtime *RuntimeObject) []string {
 
 func ToReader(obj interface{}) io.Reader {
 	switch obj.(type) {
+	case string:
+		tmp := obj.(string)
+		return strings.NewReader(tmp)
 	case *string:
 		tmp := obj.(*string)
 		return strings.NewReader(StringValue(tmp))
