@@ -29,11 +29,11 @@ func (err *AErr) New(obj map[string]interface{}) *AErr {
 	return err
 }
 
-func (err *AErr) ErrorCode() *string {
+func (err *AErr) GetCode() *string {
 	return err.Code
 }
 
-func (err *AErr) ErrorName() *string {
+func (err *AErr) GetName() *string {
 	return err.Name
 }
 
@@ -59,11 +59,11 @@ func (err *BErr) New(obj map[string]interface{}) *BErr {
 	return err
 }
 
-func (err *BErr) ErrorCode() *string {
+func (err *BErr) GetCode() *string {
 	return err.Code
 }
 
-func (err *BErr) ErrorName() *string {
+func (err *BErr) GetName() *string {
 	return err.Name
 }
 
@@ -72,7 +72,7 @@ type CErr struct {
 	Code       *string
 	Name       *string
 	Message    *string
-	RetryAfter *int
+	RetryAfter *int64
 	StatusCode *int
 }
 
@@ -91,26 +91,26 @@ func (err *CErr) New(obj map[string]interface{}) *CErr {
 		err.StatusCode = Int(statusCode)
 	}
 
-	if retryAfter, ok := obj["RetryAfter"].(int); ok {
-		err.RetryAfter = Int(retryAfter)
+	if retryAfter, ok := obj["RetryAfter"].(int64); ok {
+		err.RetryAfter = Int64(retryAfter)
 	}
 
 	return err
 }
 
-func (err *CErr) ErrorCode() *string {
+func (err *CErr) GetCode() *string {
 	return err.Code
 }
 
-func (err *CErr) ErrorName() *string {
+func (err *CErr) GetName() *string {
 	return err.Name
 }
 
-func (err *CErr) ErrorRetryAfter() *int {
+func (err *CErr) GetRetryAfter() *int64 {
 	return err.RetryAfter
 }
 
-func (err *CErr) ErrorStatusCode() *int {
+func (err *CErr) GetStatusCode() *int {
 	return err.StatusCode
 }
 
@@ -584,7 +584,7 @@ func TestRetryAfter(t *testing.T) {
 		RetriesAttempted: 2,
 		Exception: new(CErr).New(map[string]interface{}{
 			"Code":       "CErr",
-			"RetryAfter": 3000,
+			"RetryAfter": int64(3000),
 		}),
 	}
 

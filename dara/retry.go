@@ -273,12 +273,12 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 
 		for _, condition := range conditions {
 			for _, exc := range condition.Exception {
-				if exc == StringValue(baseErr.ErrorName()) {
+				if exc == StringValue(baseErr.GetName()) {
 					return false
 				}
 			}
 			for _, code := range condition.ErrorCode {
-				if code == StringValue(baseErr.ErrorCode()) {
+				if code == StringValue(baseErr.GetCode()) {
 					return false
 				}
 			}
@@ -287,7 +287,7 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 		conditions = options.RetryCondition
 		for _, condition := range conditions {
 			for _, exc := range condition.Exception {
-				if exc == StringValue(baseErr.ErrorName()) {
+				if exc == StringValue(baseErr.GetName()) {
 					if retriesAttempted >= condition.MaxAttempts {
 						return false
 					}
@@ -295,7 +295,7 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 				}
 			}
 			for _, code := range condition.ErrorCode {
-				if code == StringValue(baseErr.ErrorCode()) {
+				if code == StringValue(baseErr.GetCode()) {
 					if retriesAttempted >= condition.MaxAttempts {
 						return false
 					}
@@ -323,13 +323,13 @@ func GetBackoffDelay(options *RetryOptions, ctx *RetryPolicyContext) int {
 	if baseErr, ok := ex.(BaseError); ok {
 		for _, condition := range conditions {
 			for _, exc := range condition.Exception {
-				if exc == StringValue(baseErr.ErrorName()) {
+				if exc == StringValue(baseErr.GetName()) {
 					maxDelay := condition.MaxDelay
 					// Simulated "retryAfter" from an error response
 					if respErr, ok := ex.(ResponseError); ok {
-						retryAfter := IntValue(respErr.ErrorRetryAfter())
+						retryAfter := Int64Value(respErr.GetRetryAfter())
 						if retryAfter != 0 {
-							return min(retryAfter, maxDelay)
+							return min(int(retryAfter), maxDelay)
 						}
 					}
 					// This would be set properly based on your error handling
@@ -342,13 +342,13 @@ func GetBackoffDelay(options *RetryOptions, ctx *RetryPolicyContext) int {
 			}
 
 			for _, code := range condition.ErrorCode {
-				if code == StringValue(baseErr.ErrorCode()) {
+				if code == StringValue(baseErr.GetCode()) {
 					maxDelay := condition.MaxDelay
 					// Simulated "retryAfter" from an error response
 					if respErr, ok := ex.(ResponseError); ok {
-						retryAfter := IntValue(respErr.ErrorRetryAfter())
+						retryAfter := Int64Value(respErr.GetRetryAfter())
 						if retryAfter != 0 {
-							return min(retryAfter, maxDelay)
+							return min(int(retryAfter), maxDelay)
 						}
 					}
 

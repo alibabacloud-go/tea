@@ -7,18 +7,19 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"github.com/alibabacloud-go/tea/tea"
 )
 
 type BaseError interface {
 	error
-	ErrorName() *string
-	ErrorCode() *string
+	GetName() *string
+	GetCode() *string
 }
 
 type ResponseError interface {
 	BaseError
-	ErrorRetryAfter() *int
-	ErrorStatusCode() *int
+	GetRetryAfter() *int64
+	GetStatusCode() *int
 }
 
 // SDKError struct is used save error code and message
@@ -38,6 +39,42 @@ type SDKError struct {
 // CastError is used for cast type fails
 type CastError struct {
 	Message *string
+}
+
+func TeaSDKError(err error) *tea.SDKError {
+	if(err == nil) {
+		return nil
+	}
+
+	if te, ok := err.(*SDKError); ok {
+		return tea.NewSDKError(map[string]interface{}{
+			"code": StringValue(te.Code),
+			"statusCode": IntValue(te.StatusCode),
+			"message": StringValue(te.Message),
+			"data": te.Data,
+			"description": StringValue(te.Description),
+			"accessDeniedDetail": te.AccessDeniedDetail,
+		})
+	}
+
+	if respErr, ok := err.(ResponseError); ok { 
+		return tea.NewSDKError(map[string]interface{}{
+			"code": StringValue(respErr.GetCode()),
+			"statusCode": IntValue(respErr.GetStatusCode()),
+			"message": respErr.Error(),
+		})
+	}
+
+	if baseErr, ok := err.(BaseError); ok { 
+		return tea.NewSDKError(map[string]interface{}{
+			"code": StringValue(baseErr.GetCode()),
+			"message": baseErr.Error(),
+		})
+	}
+
+	return tea.NewSDKError(map[string]interface{}{
+		"message": err.Error(),
+	})
 }
 
 // NewSDKError is used for shortly create SDKError object
@@ -120,7 +157,7 @@ func (err *SDKError) ErrorMessage() *string {
 	return err.Message
 }
 
-func (err *SDKError) ErrorCode() *string {
+func (err *SDKError) GetCode() *string {
 	return err.Code
 }
 
