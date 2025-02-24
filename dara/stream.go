@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"strings"
+	"fmt"
 )
 
 // 定义 Event 结构体
@@ -14,24 +15,36 @@ type SSEEvent struct {
 	ID    *string
 	Event *string
 	Data  *string
+	Retry *int
 }
 
 // 解析单个事件
-func parseEvent(eventLines []string) *SSEEvent {
-	var event *SSEEvent
-	var data string
-	var id string
-
-	for _, line := range eventLines {
-		if strings.HasPrefix(line, "data:") {
-			data += strings.TrimPrefix(line, "data:") + "\n"
-		} else if strings.HasPrefix(line, "id:") {
-			id += strings.TrimPrefix(line, "data:") + "\n"
+func parseEvent(lines []string) *SSEEvent {
+	event := &SSEEvent{}
+	for _, line := range lines {
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ") + "\n"
+			if event.Data == nil {
+				event.Data = new(string)
+			}
+			*event.Data += data
+		} else if strings.HasPrefix(line, "event: ") {
+			eventName := strings.TrimPrefix(line, "event: ")
+			event.Event = &eventName
+		} else if strings.HasPrefix(line, "id: ") {
+			id := strings.TrimPrefix(line, "id: ")
+			event.ID = &id
+		} else if strings.HasPrefix(line, "retry: ") {
+			var retry int
+			fmt.Sscanf(strings.TrimPrefix(line, "retry: "), "%d", &retry)
+			event.Retry = &retry
 		}
 	}
-
-	event.Data = String(data)
-	event.ID = String(id)
+	// Remove last newline from data
+	if event.Data != nil {
+		data := strings.TrimRight(*event.Data, "\n")
+		event.Data = &data
+	}
 	return event
 }
 
@@ -77,34 +90,48 @@ func ReadAsString(body io.Reader) (string, error) {
 	return string(byt), nil
 }
 
-func ReadAsSSE(body io.ReadCloser) (<-chan *SSEEvent, <-chan error) {
-	eventChannel := make(chan *SSEEvent)
+func ReadAsSSE(body io.ReadCloser, eventChannel chan *SSEEvent, errorChannel chan error) {
 
-	// 启动 Goroutine 解析 SSE 数据
 	go func() {
-		defer body.Close()
-		defer close(eventChannel)
-		var eventLines []string
+		defer func() {
+			body.Close()
+			close(eventChannel)
+		}()
 
 		reader := bufio.NewReader(body)
+		var eventLines []string
 
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
+				if err == io.EOF {
+					// Handle the end of the stream and possibly pending event
+					if len(eventLines) > 0 {
+						event := parseEvent(eventLines)
+						eventChannel <- event
+					}
+					errorChannel <- nil
+					return
+				}
+				errorChannel <- err
 				return
 			}
 
 			line = strings.TrimRight(line, "\n")
+
 			if line == "" {
+				// End of an SSE event
 				if len(eventLines) > 0 {
 					event := parseEvent(eventLines)
 					eventChannel <- event
-					eventLines = []string{}
+					eventLines = []string{} // Reset for the next event
 				}
 				continue
 			}
+
 			eventLines = append(eventLines, line)
 		}
 	}()
-	return eventChannel, nil
+
+	return
 }
