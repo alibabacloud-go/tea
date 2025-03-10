@@ -735,6 +735,42 @@ func Test_ToReader(t *testing.T) {
 	utils.AssertEqual(t, "", string(byt))
 }
 
+func Test_ToWriter(t *testing.T) {
+	str := "abc"
+	writer := ToWriter(str).(*bytes.Buffer)
+	utils.AssertEqual(t, "abc", writer.String())
+
+	strPtr := new(string)
+	*strPtr = "def"
+	writer = ToWriter(strPtr).(*bytes.Buffer)
+	utils.AssertEqual(t, "def", writer.String())
+
+	bytesData := []byte("ghi")
+	writer = ToWriter(bytesData).(*bytes.Buffer)
+	utils.AssertEqual(t, "ghi", writer.String())
+
+	buffer := new(bytes.Buffer)
+	writer = ToWriter(buffer).(*bytes.Buffer)
+	utils.AssertEqual(t, buffer, writer)
+
+	fileWriter := ToWriter(os.Stdout)
+	utils.AssertEqual(t, os.Stdout, fileWriter)
+
+	var buf bytes.Buffer
+	writer2 := ToWriter(&buf)
+	writer2.Write([]byte("test"))
+	utils.AssertEqual(t, "test", buf.String())
+
+	// Test a non-writer to trigger panic
+	defer func() {
+		if r := recover(); r != nil {
+			utils.AssertEqual(t, "Invalid Writer. Please provide a valid Writer.", r)
+		}
+	}()
+	num := 10
+	ToWriter(num) // This should cause a panic
+}
+
 func Test_ToString(t *testing.T) {
 	str := ToString(10)
 	utils.AssertEqual(t, "10", str)
