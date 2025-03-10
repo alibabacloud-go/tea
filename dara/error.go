@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/alibabacloud-go/tea/tea"
 	"net/http"
 	"reflect"
 	"strconv"
-	"github.com/alibabacloud-go/tea/tea"
 )
 
 type BaseError interface {
@@ -42,32 +42,32 @@ type CastError struct {
 }
 
 func TeaSDKError(err error) *tea.SDKError {
-	if(err == nil) {
+	if err == nil {
 		return nil
 	}
 
 	if te, ok := err.(*SDKError); ok {
 		return tea.NewSDKError(map[string]interface{}{
-			"code": StringValue(te.Code),
-			"statusCode": IntValue(te.StatusCode),
-			"message": StringValue(te.Message),
-			"data": te.Data,
-			"description": StringValue(te.Description),
+			"code":               StringValue(te.Code),
+			"statusCode":         IntValue(te.StatusCode),
+			"message":            StringValue(te.Message),
+			"data":               te.Data,
+			"description":        StringValue(te.Description),
 			"accessDeniedDetail": te.AccessDeniedDetail,
 		})
 	}
 
-	if respErr, ok := err.(ResponseError); ok { 
+	if respErr, ok := err.(ResponseError); ok {
 		return tea.NewSDKError(map[string]interface{}{
-			"code": StringValue(respErr.GetCode()),
+			"code":       StringValue(respErr.GetCode()),
 			"statusCode": IntValue(respErr.GetStatusCode()),
-			"message": respErr.Error(),
+			"message":    respErr.Error(),
 		})
 	}
 
-	if baseErr, ok := err.(BaseError); ok { 
+	if baseErr, ok := err.(BaseError); ok {
 		return tea.NewSDKError(map[string]interface{}{
-			"code": StringValue(baseErr.GetCode()),
+			"code":    StringValue(baseErr.GetCode()),
 			"message": baseErr.Error(),
 		})
 	}

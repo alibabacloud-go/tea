@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"strings"
-	"fmt"
 )
 
 // 定义 Event 结构体
