@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"github.com/alibabacloud-go/tea/tea"
 )
 
 type BaseError interface {
