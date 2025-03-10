@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/alibabacloud-go/debug/debug"
-	"github.com/alibabacloud-go/tea/utils"
 	util "github.com/alibabacloud-go/tea-utils/v2/service"
+	"github.com/alibabacloud-go/tea/utils"
 
 	"golang.org/x/net/proxy"
 )
@@ -202,7 +202,7 @@ func getDaraClient(tag string) *daraClient {
 
 // DoRequest is used send request to server
 func DoRequest(request *Request, runtimeObject *RuntimeObject) (response *Response, err error) {
-	if(runtimeObject == nil) {
+	if runtimeObject == nil {
 		runtimeObject = &RuntimeObject{}
 	}
 	fieldMap := make(map[string]string)
@@ -426,6 +426,32 @@ func ToReader(obj interface{}) io.Reader {
 		return obj.(io.Reader)
 	default:
 		panic("Invalid Body. Please set a valid Body.")
+	}
+}
+
+func ToWriter(obj interface{}) io.Writer {
+	switch obj.(type) {
+	case string:
+		var buf bytes.Buffer
+		buf.WriteString(obj.(string))
+		return &buf
+	case *string:
+		var buf bytes.Buffer
+		tmp := obj.(*string)
+		buf.WriteString(*tmp)
+		return &buf
+	case []byte:
+		var buf bytes.Buffer
+		buf.Write(obj.([]byte))
+		return &buf
+	case io.Writer:
+		return obj.(io.Writer)
+	case *bytes.Buffer:
+		return obj.(*bytes.Buffer)
+	case *os.File:
+		return obj.(*os.File)
+	default:
+		panic("Invalid Writer. Please provide a valid Writer.")
 	}
 }
 
