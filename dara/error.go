@@ -46,6 +46,10 @@ func TeaSDKError(err error) *tea.SDKError {
 		return nil
 	}
 
+	if oe, ok := err.(*tea.SDKError); ok {
+		return oe
+	}
+
 	if te, ok := err.(*SDKError); ok {
 		return tea.NewSDKError(map[string]interface{}{
 			"code": StringValue(te.Code),
