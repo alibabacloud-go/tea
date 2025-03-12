@@ -41,13 +41,9 @@ type CastError struct {
 	Message *string
 }
 
-func TeaSDKError(err error) *tea.SDKError {
+func TeaSDKError(err error) error {
 	if(err == nil) {
 		return nil
-	}
-
-	if oe, ok := err.(*tea.SDKError); ok {
-		return oe
 	}
 
 	if te, ok := err.(*SDKError); ok {
@@ -76,9 +72,7 @@ func TeaSDKError(err error) *tea.SDKError {
 		})
 	}
 
-	return tea.NewSDKError(map[string]interface{}{
-		"message": err.Error(),
-	})
+	return err
 }
 
 // NewSDKError is used for shortly create SDKError object
