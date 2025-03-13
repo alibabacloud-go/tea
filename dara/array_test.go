@@ -405,6 +405,54 @@ func TestConcatArr(t *testing.T) {
 	}
 }
 
+func TestArrAppend(t *testing.T) {
+	// 测试用例1：插入中间位置
+	t.Run("Append to middle of an array", func(t *testing.T) {
+		numbers := []*int{new(int), new(int), new(int)}
+		for i := range numbers {
+			*numbers[i] = i + 1
+		}
+
+		// 将 9 插入到索引 1
+		valueToInsert := new(int)
+		*valueToInsert = 9
+
+		// 期望的结果
+		expected := []*int{new(int), new(int), new(int), new(int)}
+		*expected[0], *expected[1], *expected[2], *expected[3] = 1, 9, 2, 3
+
+		defer func() {
+			if !reflect.DeepEqual(numbers, expected) {
+				t.Errorf("Expected %+v, but got %+v", expected, numbers)
+			}
+		}()
+
+		ArrAppend(&numbers, valueToInsert, 1)
+	})
+
+	// 测试用例2: 尝试在越界处插入
+	t.Run("Index out of bounds", func(t *testing.T) {
+		numbers := []*int{new(int), new(int), new(int)}
+		for i := range numbers {
+			*numbers[i] = i + 1
+		}
+
+		defer func() {
+			// Defer 检查：越界情况下，数组应保持不变
+			expected := []*int{new(int), new(int), new(int)}
+			*expected[0], *expected[1], *expected[2] = 1, 2, 3
+			if !reflect.DeepEqual(numbers, expected) {
+				t.Errorf("Index out of bounds should not modify array, but got %+v", numbers)
+			}
+		}()
+
+		valueToInsert := new(int)
+		*valueToInsert = 9
+		ArrAppend(&numbers, valueToInsert, 10) // 超出范围
+	})
+}
+
+
 func TestArrRemove(t *testing.T) {
 	// Create test data for string pointer array
 	str1 := "A"

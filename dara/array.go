@@ -294,8 +294,28 @@ func ConcatArr(arr1 interface{}, arr2 interface{}) interface{} {
 }
 
 // ArrAppend inserts a new pointer at a specified index in a pointer array.
-func ArrAppend(arr interface{}, value interface{}) {
-	ArrPush(arr, value)
+func ArrAppend(arr interface{}, value interface{}, index int) {
+	arrV := reflect.ValueOf(arr)
+	if arrV.Kind() != reflect.Ptr || arrV.Elem().Kind() != reflect.Slice {
+		return
+	}
+
+	sliceV := arrV.Elem()
+
+	if index < 0 || index > sliceV.Len() {
+		return
+	}
+
+	valueV := reflect.ValueOf(value)
+
+	// 创建一个容纳新值的切片
+	newSlice := reflect.Append(sliceV, reflect.Zero(sliceV.Type().Elem()))
+	reflect.Copy(newSlice.Slice(index+1, newSlice.Len()), newSlice.Slice(index, newSlice.Len()-1))
+	newSlice.Index(index).Set(valueV)
+
+	// 更新原始切片
+	sliceV.Set(newSlice)
+	return
 }
 
 // ArrRemove removes an element from the array
