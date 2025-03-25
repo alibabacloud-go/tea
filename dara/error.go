@@ -65,7 +65,7 @@ func TeaSDKError(err error) error {
 			"code": StringValue(respErr.GetCode()),
 			"statusCode": IntValue(respErr.GetStatusCode()),
 			"message": respErr.Error(),
-			"description": respErr.GetDescription(),
+			"description": StringValue(respErr.GetDescription()),
 			"data": respErr.GetData(),
 			"accessDeniedDetail": respErr.GetAccessDeniedDetail(),
 		})
