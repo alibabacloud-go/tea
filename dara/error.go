@@ -20,6 +20,9 @@ type ResponseError interface {
 	BaseError
 	GetRetryAfter() *int64
 	GetStatusCode() *int
+	GetAccessDeniedDetail() map[string]interface{}
+	GetDescription() *string
+	GetData() map[string]interface{}
 }
 
 // SDKError struct is used save error code and message
@@ -62,6 +65,9 @@ func TeaSDKError(err error) error {
 			"code": StringValue(respErr.GetCode()),
 			"statusCode": IntValue(respErr.GetStatusCode()),
 			"message": respErr.Error(),
+			"description": respErr.GetDescription(),
+			"data": respErr.GetData(),
+			"accessDeniedDetail": respErr.GetAccessDeniedDetail(),
 		})
 	}
 
@@ -84,7 +90,7 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 	} else if val, ok := obj["code"].(string); ok {
 		err.Code = String(val)
 	}
-
+ 
 	if obj["message"] != nil {
 		err.Message = String(obj["message"].(string))
 	}
