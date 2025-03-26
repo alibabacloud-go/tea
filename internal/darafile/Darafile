@@ -1,0 +1,35 @@
+{
+  "scope": "darabonba",
+  "name": "HttpClient",
+  "version": "0.0.1",
+  "main": "./main.dara",
+  "maintainers": [
+    {
+      "name": "Alibaba Cloud SDK",
+      "email": "sdk-team@alibabacloud.com"
+    }
+  ],
+  "libraries": {
+  },
+  "releases": {
+    "go": "github.com/alibabacloud-go/tea/tea:v1.2.3-0.20240605082020-e6e537a31150"
+  },
+  "go": {
+    "interface": true,
+    "clientName": "HttpClient",
+    "typedef": {
+      "HttpRequest": {
+        "import": "net/http",
+        "type": "http.Request"
+      },
+      "HttpResponse": {
+        "import": "net/http",
+        "type": "http.Response"
+      },
+      "HttpTransport": {
+        "import": "net/http",
+        "type": "http.Transport"
+      }
+    }
+  }
+}
