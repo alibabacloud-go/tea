@@ -34,8 +34,28 @@ type RuntimeOptions = util.RuntimeOptions
 type ExtendsParameters = util.ExtendsParameters
 
 var debugLog = debug.Init("dara")
+type HttpRequest interface {
+}
 
-var hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
+type HttpResponse interface {
+}
+
+type HttpClient interface {
+	Call(request *http.Request, transport *http.Transport) (response *http.Response, err error)
+}
+
+type daraClient struct {
+	sync.Mutex
+	httpClient *http.Client
+	ifInit     bool
+}
+
+func (client *daraClient) Call(request *http.Request, transport *http.Transport) (response *http.Response, err error) {
+	response, err = client.httpClient.Do(request)
+	return
+}
+
+var hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 	return fn
 }
 
@@ -88,12 +108,7 @@ type RuntimeObject struct {
 	Logger            *utils.Logger          `json:"logger" xml:"logger"`
 	RetryOptions      *RetryOptions          `json:"retryOptions" xml:"retryOptions"`
 	ExtendsParameters *ExtendsParameters     `json:"extendsParameters,omitempty" xml:"extendsParameters,omitempty"`
-}
-
-type daraClient struct {
-	sync.Mutex
-	httpClient *http.Client
-	ifInit     bool
+	HttpClient
 }
 
 func (r *RuntimeObject) getClientTag(domain string) string {
@@ -131,6 +146,9 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 	}
 	if runtime["logger"] != nil {
 		runtimeObject.Logger = runtime["logger"].(*utils.Logger)
+	}
+	if runtime["httpClient"] != nil {
+		runtimeObject.HttpClient = runtime["httpClient"].(HttpClient)
 	}
 	return runtimeObject
 }
@@ -250,18 +268,27 @@ func DoRequest(request *Request, runtimeObject *RuntimeObject) (response *Respon
 	}
 	httpRequest.Host = StringValue(request.Domain)
 
-	client := getDaraClient(runtimeObject.getClientTag(StringValue(request.Domain)))
-	client.Lock()
-	if !client.ifInit {
-		trans, err := getHttpTransport(request, runtimeObject)
-		if err != nil {
-			return nil, err
-		}
-		client.httpClient.Timeout = time.Duration(IntValue(runtimeObject.ReadTimeout)) * time.Millisecond
-		client.httpClient.Transport = trans
-		client.ifInit = true
+	var client HttpClient
+	if runtimeObject.HttpClient == nil {
+		client = getDaraClient(runtimeObject.getClientTag(StringValue(request.Domain)))
+	} else {
+		client = runtimeObject.HttpClient
 	}
-	client.Unlock()
+
+	trans, err := getHttpTransport(request, runtimeObject)
+	if err != nil {
+		return
+	}
+	if defaultClient, ok := client.(*daraClient); ok {
+		defaultClient.Lock()
+		if !defaultClient.ifInit || defaultClient.httpClient.Transport == nil {
+			defaultClient.httpClient.Transport = trans
+		}
+		defaultClient.httpClient.Timeout = time.Duration(IntValue(runtimeObject.ReadTimeout)) * time.Millisecond
+		defaultClient.ifInit = true
+		defaultClient.Unlock()
+	}
+
 	for key, value := range request.Headers {
 		if value == nil || key == "content-length" {
 			continue
@@ -283,7 +310,7 @@ func DoRequest(request *Request, runtimeObject *RuntimeObject) (response *Respon
 	putMsgToMap(fieldMap, httpRequest)
 	startTime := time.Now()
 	fieldMap["{start_time}"] = startTime.Format("2006-01-02 15:04:05")
-	res, err := hookDo(client.httpClient.Do)(httpRequest)
+	res, err := hookDo(client.Call)(httpRequest, trans)
 	fieldMap["{cost}"] = time.Since(startTime).String()
 	completedBytes := int64(0)
 	if runtimeObject.Tracker != nil {

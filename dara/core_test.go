@@ -488,12 +488,36 @@ func Test_GetBackoffTime(t *testing.T) {
 	ms = GetBackoffTime(backoff, Int(1))
 	utils.AssertEqual(t, true, IntValue(ms) <= 3)
 }
+type httpClient struct {
+	HttpClient
+	httpClient *http.Client
+}
+
+func newHttpClient() (*httpClient, error) {
+	client := new(httpClient)
+	err := client.Init()
+	return client, err
+}
+
+func (client *httpClient) Init() (_err error) {
+	return nil
+}
+
+func (client *httpClient) Call(request *http.Request, transport *http.Transport) (_result *http.Response, _err error) {
+	if transport != nil {
+		trans := transport.Clone()
+		client.httpClient.Transport = trans
+	} else {
+		client.httpClient.Transport = http.DefaultTransport.(*http.Transport).Clone()
+	}
+	return client.httpClient.Do(request)
+}
 
 func Test_DoRequest(t *testing.T) {
 	origTestHookDo := hookDo
 	defer func() { hookDo = origTestHookDo }()
-	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
-		return func(req *http.Request) (*http.Response, error) {
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 			return mockResponse(200, ``, errors.New("Internal error"))
 		}
 	}
@@ -532,8 +556,8 @@ func Test_DoRequest(t *testing.T) {
 	utils.AssertNil(t, resp)
 	utils.AssertContains(t, err.Error(), ` invalid URL escape "%gf"`)
 
-	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
-		return func(req *http.Request) (*http.Response, error) {
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 			return mockResponse(200, ``, nil)
 		}
 	}
@@ -581,8 +605,8 @@ func Test_DoRequest(t *testing.T) {
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
 
-	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
-		return func(req *http.Request) (*http.Response, error) {
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 			utils.AssertEqual(t, "tea-cn-hangzhou.aliyuncs.com:1080", req.Host)
 			return mockResponse(200, ``, errors.New("Internal error"))
 		}
@@ -594,13 +618,20 @@ func Test_DoRequest(t *testing.T) {
 	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, `Internal error`, err.Error())
+
+	httpClient, err := newHttpClient()
+	utils.AssertNil(t, err)
+	runtimeObj["httpClient"] = httpClient
+	resp, err = DoRequest(request, NewRuntimeObject(runtimeObj))
+	utils.AssertNil(t, resp)
+	utils.AssertEqual(t, `Internal error`, err.Error())
 }
 
 func Test_DoRequestWithConcurrent(t *testing.T) {
 	origTestHookDo := hookDo
 	defer func() { hookDo = origTestHookDo }()
-	hookDo = func(fn func(req *http.Request) (*http.Response, error)) func(req *http.Request) (*http.Response, error) {
-		return func(req *http.Request) (*http.Response, error) {
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 			return mockResponse(200, ``, nil)
 		}
 	}
@@ -696,11 +727,11 @@ func Test_SetDialContext(t *testing.T) {
 }
 
 func Test_hookdo(t *testing.T) {
-	fn := func(req *http.Request) (*http.Response, error) {
+	fn := func(req *http.Request, transport *http.Transport) (*http.Response, error) {
 		return nil, errors.New("hookdo")
 	}
 	result := hookDo(fn)
-	resp, err := result(nil)
+	resp, err := result(nil, nil)
 	utils.AssertNil(t, resp)
 	utils.AssertEqual(t, "hookdo", err.Error())
 }
