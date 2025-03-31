@@ -30,6 +30,12 @@ var runtimeObj = map[string]interface{}{
 	"listener":      &Progresstest{},
 	"tracker":       &utils.ReaderTracker{CompletedBytes: int64(10)},
 	"logger":        utils.NewLogger("info", "", &bytes.Buffer{}, "{time}"),
+	"retryOptions": &RetryOptions{
+		Retryable: true,
+		RetryCondition: []*RetryCondition{
+			{MaxAttempts: 3, Exception: []string{"AErr"}, ErrorCode: []string{"A1Err"}},
+		},
+	},
 }
 
 var key = `-----BEGIN RSA PRIVATE KEY-----
@@ -193,6 +199,10 @@ func TestRuntimeObject(t *testing.T) {
 
 	runtimeobject = NewRuntimeObject(runtimeObj)
 	utils.AssertEqual(t, false, BoolValue(runtimeobject.IgnoreSSL))
+
+	utils.AssertEqual(t, true, runtimeobject.RetryOptions.Retryable)
+
+	utils.AssertEqual(t, 1, len(runtimeobject.RetryOptions.RetryCondition))
 }
 
 func TestSDKError(t *testing.T) {

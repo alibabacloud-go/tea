@@ -150,6 +150,9 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 	if runtime["httpClient"] != nil {
 		runtimeObject.HttpClient = runtime["httpClient"].(HttpClient)
 	}
+	if runtime["retryOptions"] != nil {
+		runtimeObject.RetryOptions = runtime["retryOptions"].(*RetryOptions)
+	}
 	return runtimeObject
 }
 
