@@ -30,6 +30,12 @@ var runtimeObj = map[string]interface{}{
 	"listener":      &Progresstest{},
 	"tracker":       &utils.ReaderTracker{CompletedBytes: int64(10)},
 	"logger":        utils.NewLogger("info", "", &bytes.Buffer{}, "{time}"),
+	"retryOptions": &RetryOptions{
+		Retryable: true,
+		RetryCondition: []*RetryCondition{
+			{MaxAttempts: 3, Exception: []string{"AErr"}, ErrorCode: []string{"A1Err"}},
+		},
+	},
 }
 
 var key = `-----BEGIN RSA PRIVATE KEY-----
@@ -193,6 +199,10 @@ func TestRuntimeObject(t *testing.T) {
 
 	runtimeobject = NewRuntimeObject(runtimeObj)
 	utils.AssertEqual(t, false, BoolValue(runtimeobject.IgnoreSSL))
+
+	utils.AssertEqual(t, true, runtimeobject.RetryOptions.Retryable)
+
+	utils.AssertEqual(t, 1, len(runtimeobject.RetryOptions.RetryCondition))
 }
 
 func TestSDKError(t *testing.T) {
@@ -985,6 +995,33 @@ func Test_Default(t *testing.T) {
 
 	b := ToInt32(a)
 	utils.AssertEqual(t, Int32Value(b), int32(10))
+
+	// Testing Default with nil values
+	if result := Default(nil, "default"); result != "default" {
+		t.Errorf("expected 'default', got '%v'", result)
+	}
+
+	// Testing Default with zero values
+	if result := Default("", "default"); result != "default" {
+		t.Errorf("expected 'default', got '%v'", result)
+	}
+
+	if result := Default(0, 42); result != 42 {
+		t.Errorf("expected 42, got %v", result)
+	}
+
+	if result := Default(false, true); result != true {
+		t.Errorf("expected true, got %v", result)
+	}
+
+	// Testing Default with non-zero values
+	if result := Default("value", "default"); result != "value" {
+		t.Errorf("expected 'value', got '%v'", result)
+	}
+
+	if result := Default([]int{1, 2, 3}, []int{}); !reflect.DeepEqual(result, []int{1, 2, 3}) {
+		t.Errorf("expected [1 2 3], got '%v'", result)
+	}
 }
 
 func TestToBytes(t *testing.T) {
