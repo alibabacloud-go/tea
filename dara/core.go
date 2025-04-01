@@ -642,8 +642,23 @@ func isNil(a interface{}) bool {
 	return vi.IsNil()
 }
 
+func isNilOrZero(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Ptr, reflect.Interface, reflect.Slice:
+		return v.IsNil()
+	default:
+		// Check for zero value
+		return reflect.DeepEqual(value, reflect.Zero(v.Type()).Interface())
+	}
+}
+
 func Default(inputValue interface{}, defaultValue interface{}) (_result interface{}) {
-	if IsNil(inputValue) {
+	if isNilOrZero(inputValue) {
 		_result = defaultValue
 		return _result
 	}
