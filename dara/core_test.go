@@ -361,11 +361,27 @@ type Test struct {
 }
 
 func TestToMap(t *testing.T) {
+	inStr := map[string]string{
+		"tea": "test",
+		"test": "test2",
+	}
+	result := ToMap(inStr)
+	utils.AssertEqual(t, "test", result["tea"])
+	utils.AssertEqual(t, "test2", result["test"])
+
+	inInt := map[string]int{
+		"tea": 12,
+		"test": 13,
+	}
+	result = ToMap(inInt)
+	utils.AssertEqual(t, 12, result["tea"])
+	utils.AssertEqual(t, 13, result["test"])
+
 	in := map[string]*string{
 		"tea": String("test"),
 		"nil": nil,
 	}
-	result := ToMap(in)
+	result = ToMap(in)
 	utils.AssertEqual(t, "test", result["tea"])
 	utils.AssertNil(t, result["nil"])
 

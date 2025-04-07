@@ -729,10 +729,17 @@ func ToMap(args ...interface{}) map[string]interface{} {
 			}
 		default:
 			val := reflect.ValueOf(obj)
-			res := structToMap(val)
-			for key, value := range res {
-				if value != nil {
-					finalArg[key] = value
+			if val.Kind().String() == "map" {
+				tmp := val.MapKeys()
+				for _, key := range tmp {
+					finalArg[key.String()] = val.MapIndex(key).Interface()
+				}
+			} else {
+				res := structToMap(val)
+				for key, value := range res {
+					if value != nil {
+						finalArg[key] = value
+					}
 				}
 			}
 		}
