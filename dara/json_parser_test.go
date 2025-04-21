@@ -3,6 +3,7 @@ package dara
 import (
 	"reflect"
 	"testing"
+	"strings"
 
 	"github.com/alibabacloud-go/tea/utils"
 	jsoniter "github.com/json-iterator/go"
@@ -877,4 +878,43 @@ func TestUnmarshalWithDefaultDecoders(t *testing.T) {
 
 	err = jsoniter.Unmarshal(from, toUint64)
 	utils.AssertNotNil(t, err)
+}
+
+func Test_Stringify(t *testing.T) {
+	// interface
+	str := Stringify(map[string]interface{}{"test": "ok"})
+	utils.AssertEqual(t, `{"test":"ok"}`, str)
+	// string
+	str = Stringify("test")
+	utils.AssertEqual(t, "test", str)
+	// []byte
+	str = Stringify([]byte("test"))
+	utils.AssertEqual(t, "test", str)
+	// io.Reader
+	str = Stringify(strings.NewReader("test"))
+	utils.AssertEqual(t, "test", str)
+
+	str = Stringify("test")
+	utils.AssertEqual(t, "test", str)
+}
+
+
+func Test_ParseJSON(t *testing.T) {
+	obj := ParseJSON(`{"test":"ok"}`).(map[string]interface{})
+	utils.AssertEqual(t, "ok", obj["test"])
+
+	obj1 := ParseJSON(`["test1", "test2", "test3"]`).([]interface{})
+	utils.AssertEqual(t, "test2", obj1[1])
+
+	num := ParseJSON(`10`).(int)
+	utils.AssertEqual(t, 10, num)
+
+	boolVal := ParseJSON(`true`).(bool)
+	utils.AssertEqual(t, true, boolVal)
+
+	float64Val := ParseJSON(`1.00`).(float64)
+	utils.AssertEqual(t, 1.00, float64Val)
+
+	null := ParseJSON(`}}}}`)
+	utils.AssertEqual(t, nil, null)
 }
