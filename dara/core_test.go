@@ -362,7 +362,7 @@ type Test struct {
 
 func TestToMap(t *testing.T) {
 	inStr := map[string]string{
-		"tea": "test",
+		"tea":  "test",
 		"test": "test2",
 	}
 	result := ToMap(inStr)
@@ -370,7 +370,7 @@ func TestToMap(t *testing.T) {
 	utils.AssertEqual(t, "test2", result["test"])
 
 	inInt := map[string]int{
-		"tea": 12,
+		"tea":  12,
 		"test": 13,
 	}
 	result = ToMap(inInt)
@@ -514,6 +514,7 @@ func Test_GetBackoffTime(t *testing.T) {
 	ms = GetBackoffTime(backoff, Int(1))
 	utils.AssertEqual(t, true, IntValue(ms) <= 3)
 }
+
 type httpClient struct {
 	HttpClient
 	httpClient *http.Client
@@ -653,6 +654,41 @@ func Test_DoRequest(t *testing.T) {
 	utils.AssertEqual(t, `Internal error`, err.Error())
 }
 
+func Test_DoRequestWithContextCancellation(t *testing.T) {
+	origTestHookDo := hookDo
+	defer func() { hookDo = origTestHookDo }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+			select {
+			case <-time.After(2 * time.Second):
+				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: http.NoBody}, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+
+	request := &Request{
+		Method:   String("GET"),
+		Protocol: String("http"),
+		Headers:  map[string]*string{"host": String("ecs.cn-hangzhou.aliyuncs.com")},
+	}
+
+	runtimeObject := &RuntimeObject{}
+
+	resp, err := DoRequestWithCtx(ctx, request, runtimeObject)
+
+	utils.AssertNil(t, resp)
+	if err == nil {
+		t.Fatal("Expected an error due to context timeout, got nil")
+	}
+	utils.AssertContains(t, err.Error(), "context deadline exceeded")
+}
+
 func Test_DoRequestWithConcurrent(t *testing.T) {
 	origTestHookDo := hookDo
 	defer func() { hookDo = origTestHookDo }()
@@ -679,6 +715,53 @@ func Test_DoRequestWithConcurrent(t *testing.T) {
 				}()
 			}
 			wg.Done()
+		}(i)
+	}
+	wg.Wait()
+}
+
+func Test_DoRequestWithConcurrentAndContext(t *testing.T) {
+	origTestHookDo := hookDo
+	defer func() { hookDo = origTestHookDo }()
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+			time.Sleep(100 * time.Millisecond) // 模拟请求延迟
+			return mockResponse(200, ``, nil)
+		}
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(readTimeout int) {
+			defer wg.Done()
+
+			// 每个 goroutine 有自己的上下文，设定超时控制在 500 毫秒
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+
+			runtime := NewRuntimeObject(map[string]interface{}{
+				"readTimeout": readTimeout,
+				"ctx":         ctx, // 将上下文集成到运行时对象中
+			})
+
+			for j := 0; j < 50; j++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+
+					request := NewRequest()
+					resp, err := DoRequest(request, runtime)
+
+					if err != nil {
+						// 检查是否是由于上下文超时导致的错误
+						utils.AssertContains(t, err.Error(), "context deadline exceeded")
+					} else {
+						utils.AssertNil(t, err)
+						utils.AssertNotNil(t, resp)
+					}
+				}()
+			}
 		}(i)
 	}
 	wg.Wait()
