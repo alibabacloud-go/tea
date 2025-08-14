@@ -22,21 +22,21 @@ type SSEEvent struct {
 func parseEvent(lines []string) *SSEEvent {
 	event := &SSEEvent{}
 	for _, line := range lines {
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ") + "\n"
+		if strings.HasPrefix(line, "data:") {
+			data := strings.TrimPrefix(line, "data:") + "\n"
 			if event.Data == nil {
 				event.Data = new(string)
 			}
 			*event.Data += data
-		} else if strings.HasPrefix(line, "event: ") {
-			eventName := strings.TrimPrefix(line, "event: ")
+		} else if strings.HasPrefix(line, "event:") {
+			eventName := strings.TrimPrefix(line, "event:")
 			event.Event = &eventName
-		} else if strings.HasPrefix(line, "id: ") {
-			id := strings.TrimPrefix(line, "id: ")
+		} else if strings.HasPrefix(line, "id:") {
+			id := strings.TrimPrefix(line, "id:")
 			event.ID = &id
-		} else if strings.HasPrefix(line, "retry: ") {
+		} else if strings.HasPrefix(line, "retry:") {
 			var retry int
-			fmt.Sscanf(strings.TrimPrefix(line, "retry: "), "%d", &retry)
+			fmt.Sscanf(strings.TrimPrefix(line, "retry:"), "%d", &retry)
 			event.Retry = &retry
 		}
 	}
@@ -45,6 +45,7 @@ func parseEvent(lines []string) *SSEEvent {
 		data := strings.TrimRight(*event.Data, "\n")
 		event.Data = &data
 	}
+	
 	return event
 }
 
