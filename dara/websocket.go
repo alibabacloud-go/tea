@@ -14,7 +14,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// WebSocketMessageType represents the type of WebSocket message
 type WebSocketMessageType int
 
 const (
@@ -25,7 +24,6 @@ const (
 	WebSocketMessageTypeClose
 )
 
-// WebSocketMessage represents a WebSocket message
 type WebSocketMessage struct {
 	Type      WebSocketMessageType
 	Payload   []byte
@@ -33,13 +31,11 @@ type WebSocketMessage struct {
 	Timestamp time.Time
 }
 
-// WebSocketCloseFrame represents a close frame
 type WebSocketCloseFrame struct {
 	Code   int
 	Reason string
 }
 
-// WebSocketSessionInfo holds information about a WebSocket session
 type WebSocketSessionInfo struct {
 	SessionID   string
 	ConnectedAt time.Time
@@ -48,7 +44,6 @@ type WebSocketSessionInfo struct {
 	Attributes  map[string]interface{}
 }
 
-// WebSocketConfig holds configuration for WebSocket client
 type WebSocketConfig struct {
 	URL               string
 	Headers           map[string]string
@@ -73,7 +68,6 @@ type WebSocketHandler interface {
 	SupportsPartialMessages() bool
 }
 
-// WebSocketClient is the WebSocket client interface
 type WebSocketClient interface {
 	Connect(ctx context.Context) (map[string]interface{}, error)
 	Disconnect(ctx context.Context) error
@@ -85,7 +79,6 @@ type WebSocketClient interface {
 	Close() error
 }
 
-// DefaultWebSocketClient is the default implementation of WebSocketClient
 type DefaultWebSocketClient struct {
 	config         *WebSocketConfig
 	handler        WebSocketHandler
@@ -102,7 +95,6 @@ type DefaultWebSocketClient struct {
 	closed         bool
 }
 
-// NewDefaultWebSocketClient creates a new DefaultWebSocketClient
 func NewDefaultWebSocketClient(config *WebSocketConfig, handler WebSocketHandler) (*DefaultWebSocketClient, error) {
 	if config == nil {
 		return nil, errors.New("config cannot be nil")
@@ -122,7 +114,6 @@ func NewDefaultWebSocketClient(config *WebSocketConfig, handler WebSocketHandler
 	return client, nil
 }
 
-// Connect establishes a WebSocket connection
 func (c *DefaultWebSocketClient) Connect(ctx context.Context) (map[string]interface{}, error) {
 	atomic.StoreInt32(&c.state, 1) // connecting
 
@@ -132,33 +123,43 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context) (map[string]interf
 		return map[string]interface{}{"success": false, "error": err.Error()}, err
 	}
 
-	// Setup dialer
 	dialer := websocket.Dialer{
 		HandshakeTimeout: c.config.HandshakeTimeout,
 		ReadBufferSize:   1024,
 		WriteBufferSize:  1024,
 	}
 
-	// Add TLS config if needed
 	if u.Scheme == "wss" {
 		dialer.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: false,
 		}
 	}
 
-	// Setup headers
 	header := http.Header{}
 	for k, v := range c.config.Headers {
 		header.Set(k, v)
 	}
 
-	// Connect with timeout
+	// Debug: log headers being sent
+	fmt.Printf("[WebSocket] Handshake headers:\n")
+	for k, v := range header {
+		fmt.Printf("  %s: %v\n", k, v)
+	}
+
 	connectCtx, cancel := context.WithTimeout(ctx, c.config.ConnectTimeout)
 	defer cancel()
 
 	conn, resp, err := dialer.DialContext(connectCtx, c.config.URL, header)
 	if err != nil {
 		atomic.StoreInt32(&c.state, 0) // disconnected
+		// Debug: log response if available
+		if resp != nil {
+			fmt.Printf("[WebSocket] Handshake failed. Response status: %s\n", resp.Status)
+			fmt.Printf("[WebSocket] Response headers:\n")
+			for k, v := range resp.Header {
+				fmt.Printf("  %s: %v\n", k, v)
+			}
+		}
 		return map[string]interface{}{"success": false, "error": err.Error()}, err
 	}
 
@@ -174,15 +175,12 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context) (map[string]interf
 		Attributes:  make(map[string]interface{}),
 	}
 
-	// Start message handlers
 	c.startMessageHandlers()
 
-	// Start ping/pong
 	if c.config.PingInterval > 0 {
 		c.startPingPong()
 	}
 
-	// Call handler
 	if err := c.handler.AfterConnectionEstablished(c.session); err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}, err
 	}
@@ -196,12 +194,10 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context) (map[string]interf
 	return result, nil
 }
 
-// Disconnect closes the WebSocket connection
 func (c *DefaultWebSocketClient) Disconnect(ctx context.Context) error {
 	return c.disconnect(1000, "Normal closure")
 }
 
-// disconnect closes the connection with a specific code and reason
 func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()
@@ -212,7 +208,6 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 
 	atomic.StoreInt32(&c.state, 3) // disconnecting
 
-	// Stop ping/pong
 	c.stopPingPong()
 
 	// Close connection
@@ -224,7 +219,6 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 		c.conn.Close()
 	}
 
-	// Call handler
 	if c.session != nil {
 		c.handler.AfterConnectionClosed(c.session, code, reason)
 	}
@@ -232,14 +226,12 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 	atomic.StoreInt32(&c.state, 0) // disconnected
 	c.closed = true
 
-	// Stop message handlers
 	close(c.stopChan)
 	c.wg.Wait()
 
 	return nil
 }
 
-// Reconnect reconnects the WebSocket
 func (c *DefaultWebSocketClient) Reconnect(ctx context.Context) (map[string]interface{}, error) {
 	c.reconnectMu.Lock()
 	defer c.reconnectMu.Unlock()
@@ -252,20 +244,16 @@ func (c *DefaultWebSocketClient) Reconnect(ctx context.Context) (map[string]inte
 		return nil, fmt.Errorf("max reconnect times reached: %d", c.config.MaxReconnectTimes)
 	}
 
-	// Close existing connection
 	if c.conn != nil {
 		c.conn.Close()
 	}
 
-	// Reset state
 	c.closed = false
 	c.stopChan = make(chan struct{})
 	c.reconnectCount++
 
-	// Wait before reconnecting
 	time.Sleep(c.config.ReconnectInterval)
 
-	// Try to connect
 	result, err := c.Connect(ctx)
 	if err == nil {
 		c.reconnectCount = 0 // Reset on success
@@ -274,12 +262,10 @@ func (c *DefaultWebSocketClient) Reconnect(ctx context.Context) (map[string]inte
 	return result, err
 }
 
-// IsConnected returns whether the client is connected
 func (c *DefaultWebSocketClient) IsConnected() bool {
 	return atomic.LoadInt32(&c.state) == 2
 }
 
-// SendText sends a text message
 func (c *DefaultWebSocketClient) SendText(ctx context.Context, text string) error {
 	if !c.IsConnected() {
 		return errors.New("not connected")
@@ -292,7 +278,6 @@ func (c *DefaultWebSocketClient) SendText(ctx context.Context, text string) erro
 	return c.conn.WriteMessage(websocket.TextMessage, []byte(text))
 }
 
-// SendBinary sends a binary message
 func (c *DefaultWebSocketClient) SendBinary(ctx context.Context, data []byte) error {
 	if !c.IsConnected() {
 		return errors.New("not connected")
@@ -305,17 +290,14 @@ func (c *DefaultWebSocketClient) SendBinary(ctx context.Context, data []byte) er
 	return c.conn.WriteMessage(websocket.BinaryMessage, data)
 }
 
-// GetSessionInfo returns the current session information
 func (c *DefaultWebSocketClient) GetSessionInfo() *WebSocketSessionInfo {
 	return c.session
 }
 
-// Close closes the client and releases resources
 func (c *DefaultWebSocketClient) Close() error {
 	return c.disconnect(1000, "Client closed")
 }
 
-// startMessageHandlers starts goroutines to handle incoming messages
 func (c *DefaultWebSocketClient) startMessageHandlers() {
 	// Read messages from WebSocket
 	c.wg.Add(1)
@@ -325,7 +307,6 @@ func (c *DefaultWebSocketClient) startMessageHandlers() {
 	}()
 }
 
-// readMessages reads messages from WebSocket connection
 func (c *DefaultWebSocketClient) readMessages() {
 	defer func() {
 		if r := recover(); r != nil {
@@ -383,7 +364,6 @@ func (c *DefaultWebSocketClient) readMessages() {
 	}
 }
 
-// startPingPong starts ping/pong mechanism
 func (c *DefaultWebSocketClient) startPingPong() {
 	c.pingTicker = time.NewTicker(c.config.PingInterval)
 
@@ -436,14 +416,12 @@ func (c *DefaultWebSocketClient) startPingPong() {
 	}
 }
 
-// stopPingPong stops ping/pong mechanism
 func (c *DefaultWebSocketClient) stopPingPong() {
 	if c.pingTicker != nil {
 		c.pingTicker.Stop()
 	}
 }
 
-// convertToWebSocketMessageType converts gorilla/websocket message type
 func convertToWebSocketMessageType(mt int) WebSocketMessageType {
 	switch mt {
 	case websocket.TextMessage:
@@ -461,8 +439,6 @@ func convertToWebSocketMessageType(mt int) WebSocketMessageType {
 	}
 }
 
-// generateSessionID generates a unique session ID
 func generateSessionID() string {
 	return fmt.Sprintf("ws-session-%d", time.Now().UnixNano())
 }
-

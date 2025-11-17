@@ -14,7 +14,6 @@ const (
 	AwapMessageTypeEvent    AwapMessageType = "event"
 )
 
-// AwapMessageFormat represents AWAP message format
 type AwapMessageFormat string
 
 const (
@@ -22,32 +21,29 @@ const (
 	AwapMessageFormatBinary AwapMessageFormat = "binary"
 )
 
-// AwapMessage represents an AWAP protocol message
 type AwapMessage struct {
-	Type    AwapMessageType            `json:"type"`
-	ID      string                     `json:"id"`
-	Seq     int64                      `json:"seq"`
-	Headers map[string]string          `json:"headers,omitempty"`
-	Payload interface{}                `json:"payload,omitempty"`
-	Format  AwapMessageFormat          `json:"format,omitempty"`
-	Status  int                        `json:"status,omitempty"`
-	Error   string                     `json:"error,omitempty"`
-	Data    map[string]interface{}     `json:"data,omitempty"`
+	Type    AwapMessageType        `json:"type"`
+	ID      string                 `json:"id"`
+	Seq     int64                  `json:"seq"`
+	Headers map[string]string      `json:"headers,omitempty"`
+	Payload interface{}            `json:"payload,omitempty"`
+	Format  AwapMessageFormat      `json:"format,omitempty"`
+	Status  int                    `json:"status,omitempty"`
+	Error   string                 `json:"error,omitempty"`
+	Data    map[string]interface{} `json:"data,omitempty"`
 }
 
-// AwapIncomingMessage represents an incoming AWAP message
 type AwapIncomingMessage struct {
 	AwapMessage
 	RawPayload []byte
 }
 
-// AwapWebSocketHandler handles AWAP protocol messages
 type AwapWebSocketHandler interface {
 	WebSocketHandler
-	
+
 	// HandleAwapMessage handles AWAP protocol messages
 	HandleAwapMessage(session *WebSocketSessionInfo, message *AwapMessage) error
-	
+
 	// HandleAwapIncomingMessage handles incoming AWAP messages
 	HandleAwapIncomingMessage(session *WebSocketSessionInfo, message *AwapIncomingMessage) error
 }
@@ -57,19 +53,16 @@ type AbstractAwapWebSocketHandler struct {
 	supportsPartial bool
 }
 
-// AfterConnectionEstablished is called after connection is established
 func (h *AbstractAwapWebSocketHandler) AfterConnectionEstablished(session *WebSocketSessionInfo) error {
 	return nil
 }
 
-// HandleRawMessage processes raw WebSocket messages and converts to AWAP format
 func (h *AbstractAwapWebSocketHandler) HandleRawMessage(session *WebSocketSessionInfo, message *WebSocketMessage) error {
-	// Parse as AWAP message
 	awapMsg, err := ParseAwapMessage(message)
 	if err != nil {
 		return err
 	}
-	
+
 	// Handle based on message type
 	if awapMsg.Type == AwapMessageTypeEvent {
 		incoming := &AwapIncomingMessage{
@@ -78,7 +71,7 @@ func (h *AbstractAwapWebSocketHandler) HandleRawMessage(session *WebSocketSessio
 		}
 		return h.HandleAwapIncomingMessage(session, incoming)
 	}
-	
+
 	return h.HandleAwapMessage(session, awapMsg)
 }
 
@@ -119,16 +112,15 @@ func ParseAwapMessage(message *WebSocketMessage) (*AwapMessage, error) {
 	if message.Type != WebSocketMessageTypeText {
 		return nil, fmt.Errorf("AWAP messages must be text format")
 	}
-	
+
 	var awapMsg AwapMessage
 	if err := json.Unmarshal(message.Payload, &awapMsg); err != nil {
 		return nil, fmt.Errorf("failed to parse AWAP message: %w", err)
 	}
-	
+
 	return &awapMsg, nil
 }
 
-// BuildAwapMessage builds an AWAP message
 func BuildAwapMessage(msgType AwapMessageType, id string, seq int64, payload interface{}) *AwapMessage {
 	return &AwapMessage{
 		Type:    msgType,
@@ -139,12 +131,10 @@ func BuildAwapMessage(msgType AwapMessageType, id string, seq int64, payload int
 	}
 }
 
-// BuildAwapRequest builds an AWAP request message
 func BuildAwapRequest(id string, seq int64, payload interface{}) *AwapMessage {
 	return BuildAwapMessage(AwapMessageTypeRequest, id, seq, payload)
 }
 
-// BuildAwapResponse builds an AWAP response message
 func BuildAwapResponse(id string, seq int64, status int, data interface{}) *AwapMessage {
 	msg := BuildAwapMessage(AwapMessageTypeResponse, id, seq, nil)
 	msg.Status = status
@@ -152,17 +142,14 @@ func BuildAwapResponse(id string, seq int64, status int, data interface{}) *Awap
 	return msg
 }
 
-// BuildAwapEvent builds an AWAP event message
 func BuildAwapEvent(id string, seq int64, payload interface{}) *AwapMessage {
 	return BuildAwapMessage(AwapMessageTypeEvent, id, seq, payload)
 }
 
-// ToJSON converts AWAP message to JSON bytes
 func (m *AwapMessage) ToJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
-// WithHeader adds a header to the AWAP message
 func (m *AwapMessage) WithHeader(key, value string) *AwapMessage {
 	if m.Headers == nil {
 		m.Headers = make(map[string]string)
@@ -171,9 +158,7 @@ func (m *AwapMessage) WithHeader(key, value string) *AwapMessage {
 	return m
 }
 
-// WithFormat sets the message format
 func (m *AwapMessage) WithFormat(format AwapMessageFormat) *AwapMessage {
 	m.Format = format
 	return m
 }
-

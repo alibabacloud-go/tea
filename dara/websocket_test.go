@@ -2,11 +2,15 @@ package dara
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
-// MockWebSocketHandler for testing
 type MockWebSocketHandler struct {
 	ConnectedCalled      bool
 	MessageReceivedCount int
@@ -40,7 +44,6 @@ func (h *MockWebSocketHandler) SupportsPartialMessages() bool {
 	return false
 }
 
-// TestWebSocketConfig tests WebSocket configuration
 func TestWebSocketConfig(t *testing.T) {
 	config := &WebSocketConfig{
 		URL:               "ws://localhost:8080",
@@ -66,7 +69,6 @@ func TestWebSocketConfig(t *testing.T) {
 	}
 }
 
-// TestWebSocketClientCreation tests client creation
 func TestWebSocketClientCreation(t *testing.T) {
 	config := &WebSocketConfig{
 		URL:               "ws://localhost:8080",
@@ -94,20 +96,17 @@ func TestWebSocketClientCreation(t *testing.T) {
 		t.Error("Client should not be connected initially")
 	}
 
-	// Test with nil config
 	_, err = NewDefaultWebSocketClient(nil, handler)
 	if err == nil {
 		t.Error("Expected error when config is nil")
 	}
 
-	// Test with nil handler
 	_, err = NewDefaultWebSocketClient(config, nil)
 	if err == nil {
 		t.Error("Expected error when handler is nil")
 	}
 }
 
-// TestWebSocketMessageTypes tests message type constants
 func TestWebSocketMessageTypes(t *testing.T) {
 	if WebSocketMessageTypeText != 0 {
 		t.Errorf("Expected WebSocketMessageTypeText to be 0, got %d", WebSocketMessageTypeText)
@@ -118,7 +117,6 @@ func TestWebSocketMessageTypes(t *testing.T) {
 	}
 }
 
-// TestWebSocketSessionInfo tests session information
 func TestWebSocketSessionInfo(t *testing.T) {
 	session := &WebSocketSessionInfo{
 		SessionID:   "test-session-123",
@@ -145,7 +143,6 @@ func TestWebSocketSessionInfo(t *testing.T) {
 	}
 }
 
-// TestMockHandler tests the mock handler
 func TestMockHandler(t *testing.T) {
 	handler := &MockWebSocketHandler{}
 
@@ -155,7 +152,6 @@ func TestMockHandler(t *testing.T) {
 		Attributes:  make(map[string]interface{}),
 	}
 
-	// Test connection established
 	if err := handler.AfterConnectionEstablished(session); err != nil {
 		t.Errorf("Expected nil error, got %v", err)
 	}
@@ -163,7 +159,6 @@ func TestMockHandler(t *testing.T) {
 		t.Error("AfterConnectionEstablished was not called")
 	}
 
-	// Test message handling
 	msg := &WebSocketMessage{
 		Type:      WebSocketMessageTypeText,
 		Payload:   []byte("test message"),
@@ -182,25 +177,21 @@ func TestMockHandler(t *testing.T) {
 		t.Errorf("Expected last message 'test message', got '%s'", string(handler.LastMessage.Payload))
 	}
 
-	// Test error handling
 	handler.HandleError(session, context.DeadlineExceeded)
 	if handler.ErrorCount != 1 {
 		t.Errorf("Expected 1 error, got %d", handler.ErrorCount)
 	}
 
-	// Test connection closed
 	handler.AfterConnectionClosed(session, 1000, "Normal")
 	if !handler.ClosedCalled {
 		t.Error("AfterConnectionClosed was not called")
 	}
 
-	// Test partial messages support
 	if handler.SupportsPartialMessages() {
 		t.Error("Expected SupportsPartialMessages to return false")
 	}
 }
 
-// TestGenerateSessionID tests session ID generation
 func TestGenerateSessionID(t *testing.T) {
 	id1 := generateSessionID()
 	if id1 == "" {
@@ -225,11 +216,11 @@ func TestConvertToWebSocketMessageType(t *testing.T) {
 		input    int
 		expected WebSocketMessageType
 	}{
-		{1, WebSocketMessageTypeText},    // websocket.TextMessage
-		{2, WebSocketMessageTypeBinary},  // websocket.BinaryMessage
-		{9, WebSocketMessageTypePing},    // websocket.PingMessage
-		{10, WebSocketMessageTypePong},   // websocket.PongMessage
-		{8, WebSocketMessageTypeClose},   // websocket.CloseMessage
+		{1, WebSocketMessageTypeText},     // websocket.TextMessage
+		{2, WebSocketMessageTypeBinary},   // websocket.BinaryMessage
+		{9, WebSocketMessageTypePing},     // websocket.PingMessage
+		{10, WebSocketMessageTypePong},    // websocket.PongMessage
+		{8, WebSocketMessageTypeClose},    // websocket.CloseMessage
 		{999, WebSocketMessageTypeBinary}, // unknown -> binary
 	}
 
@@ -241,3 +232,278 @@ func TestConvertToWebSocketMessageType(t *testing.T) {
 	}
 }
 
+func TestDefaultWebSocketClient_Connect(t *testing.T) {
+	// Create a test WebSocket server
+	server := createTestWebSocketServer(t)
+	defer server.Close()
+
+	// Convert server URL to WebSocket URL
+	wsURL := "ws" + server.URL[4:] // Replace "http" with "ws"
+
+	t.Run("Successful connection", func(t *testing.T) {
+		config := &WebSocketConfig{
+			URL:              wsURL,
+			Headers:          make(map[string]string),
+			ConnectTimeout:   5 * time.Second,
+			ReadTimeout:      30 * time.Second,
+			WriteTimeout:     10 * time.Second,
+			HandshakeTimeout: 5 * time.Second,
+			PingInterval:     0, // Disable ping for this test
+			EnableReconnect:  false,
+		}
+
+		handler := &MockWebSocketHandler{}
+		client, err := NewDefaultWebSocketClient(config, handler)
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+
+		// Test initial state
+		if client.IsConnected() {
+			t.Error("Client should not be connected initially")
+		}
+
+		// Connect
+		ctx := context.Background()
+		result, err := client.Connect(ctx)
+		if err != nil {
+			t.Fatalf("Connect failed: %v", err)
+		}
+
+		// Verify result
+		if success, ok := result["success"].(bool); !ok || !success {
+			t.Errorf("Expected success=true, got %v", result)
+		}
+
+		// Verify state
+		if !client.IsConnected() {
+			t.Error("Client should be connected after Connect()")
+		}
+
+		// Verify handler was called
+		if !handler.ConnectedCalled {
+			t.Error("AfterConnectionEstablished should be called")
+		}
+
+		// Verify session was created
+		if client.session == nil {
+			t.Error("Session should be created after connection")
+		}
+
+		if client.session.SessionID == "" {
+			t.Error("Session ID should not be empty")
+		}
+
+		// Cleanup
+		client.Disconnect(ctx)
+	})
+
+	t.Run("Invalid URL", func(t *testing.T) {
+		config := &WebSocketConfig{
+			URL:              "invalid-url://test",
+			Headers:          make(map[string]string),
+			ConnectTimeout:   5 * time.Second,
+			ReadTimeout:      30 * time.Second,
+			WriteTimeout:     10 * time.Second,
+			HandshakeTimeout: 5 * time.Second,
+		}
+
+		handler := &MockWebSocketHandler{}
+		client, err := NewDefaultWebSocketClient(config, handler)
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+
+		ctx := context.Background()
+		result, err := client.Connect(ctx)
+		if err == nil {
+			t.Error("Expected error for invalid URL")
+		}
+
+		if success, ok := result["success"].(bool); ok && success {
+			t.Error("Expected success=false for invalid URL")
+		}
+
+		// Verify state is disconnected
+		if client.IsConnected() {
+			t.Error("Client should not be connected after failed connection")
+		}
+	})
+
+	t.Run("Connection timeout", func(t *testing.T) {
+		// Use a non-existent server with very short timeout
+		config := &WebSocketConfig{
+			URL:              "ws://127.0.0.1:99999", // Non-existent port
+			Headers:          make(map[string]string),
+			ConnectTimeout:   100 * time.Millisecond, // Very short timeout
+			ReadTimeout:      30 * time.Second,
+			WriteTimeout:     10 * time.Second,
+			HandshakeTimeout: 100 * time.Millisecond,
+		}
+
+		handler := &MockWebSocketHandler{}
+		client, err := NewDefaultWebSocketClient(config, handler)
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+
+		ctx := context.Background()
+		result, err := client.Connect(ctx)
+		if err == nil {
+			t.Error("Expected error for connection timeout")
+		}
+
+		if success, ok := result["success"].(bool); ok && success {
+			t.Error("Expected success=false for timeout")
+		}
+
+		// Verify state is disconnected
+		if client.IsConnected() {
+			t.Error("Client should not be connected after timeout")
+		}
+
+		// Verify handler was not called
+		if handler.ConnectedCalled {
+			t.Error("AfterConnectionEstablished should not be called on timeout")
+		}
+	})
+
+	t.Run("Connection with custom headers", func(t *testing.T) {
+		config := &WebSocketConfig{
+			URL: wsURL,
+			Headers: map[string]string{
+				"X-Custom-Header": "test-value",
+				"User-Agent":      "test-agent",
+			},
+			ConnectTimeout:   5 * time.Second,
+			ReadTimeout:      30 * time.Second,
+			WriteTimeout:     10 * time.Second,
+			HandshakeTimeout: 5 * time.Second,
+			PingInterval:     0,
+		}
+
+		handler := &MockWebSocketHandler{}
+		client, err := NewDefaultWebSocketClient(config, handler)
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+
+		ctx := context.Background()
+		result, err := client.Connect(ctx)
+		if err != nil {
+			t.Fatalf("Connect failed: %v", err)
+		}
+
+		if success, ok := result["success"].(bool); !ok || !success {
+			t.Errorf("Expected success=true, got %v", result)
+		}
+
+		// Cleanup
+		client.Disconnect(ctx)
+	})
+
+	t.Run("Handler error on connection established", func(t *testing.T) {
+		errorHandler := &ErrorOnConnectHandler{}
+		config := &WebSocketConfig{
+			URL:              wsURL,
+			Headers:          make(map[string]string),
+			ConnectTimeout:   5 * time.Second,
+			ReadTimeout:      30 * time.Second,
+			WriteTimeout:     10 * time.Second,
+			HandshakeTimeout: 5 * time.Second,
+			PingInterval:     0,
+		}
+
+		client, err := NewDefaultWebSocketClient(config, errorHandler)
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+
+		ctx := context.Background()
+		result, err := client.Connect(ctx)
+		if err == nil {
+			t.Error("Expected error when handler returns error")
+		}
+
+		if success, ok := result["success"].(bool); ok && success {
+			t.Error("Expected success=false when handler returns error")
+		}
+
+		// Cleanup - connection might still be established even if handler fails
+		client.Disconnect(ctx)
+	})
+
+	t.Run("Connection with ping interval", func(t *testing.T) {
+		config := &WebSocketConfig{
+			URL:              wsURL,
+			Headers:          make(map[string]string),
+			ConnectTimeout:   5 * time.Second,
+			ReadTimeout:      30 * time.Second,
+			WriteTimeout:     10 * time.Second,
+			HandshakeTimeout: 5 * time.Second,
+			PingInterval:     1 * time.Second, // Enable ping
+			PongTimeout:      500 * time.Millisecond,
+		}
+
+		handler := &MockWebSocketHandler{}
+		client, err := NewDefaultWebSocketClient(config, handler)
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+
+		ctx := context.Background()
+		result, err := client.Connect(ctx)
+		if err != nil {
+			t.Fatalf("Connect failed: %v", err)
+		}
+
+		if success, ok := result["success"].(bool); !ok || !success {
+			t.Errorf("Expected success=true, got %v", result)
+		}
+
+		// Wait a bit to ensure ping goroutine starts
+		time.Sleep(100 * time.Millisecond)
+
+		// Cleanup
+		client.Disconnect(ctx)
+	})
+}
+
+// ErrorOnConnectHandler is a handler that returns an error on connection
+type ErrorOnConnectHandler struct {
+	MockWebSocketHandler
+}
+
+func (h *ErrorOnConnectHandler) AfterConnectionEstablished(session *WebSocketSessionInfo) error {
+	return errors.New("test error on connection")
+}
+
+func createTestWebSocketServer(t *testing.T) *httptest.Server {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins for testing
+		},
+	}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("WebSocket upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		for {
+			messageType, message, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+			if err := conn.WriteMessage(messageType, message); err != nil {
+				break
+			}
+		}
+	})
+
+	server := httptest.NewServer(handler)
+	return server
+}
