@@ -5,6 +5,19 @@ import (
 	"fmt"
 )
 
+// GeneralMessageType represents the message type for General protocol
+type GeneralMessageType string
+
+const (
+	// Upstream event types (client -> server)
+	GeneralMessageTypeUpstreamDefaultTextEvent   GeneralMessageType = "UpstreamDefaultTextEvent"
+	GeneralMessageTypeUpstreamDefaultBinaryEvent GeneralMessageType = "UpstreamDefaultBinaryEvent"
+
+	// Downstream event types (server -> client)
+	GeneralMessageTypeDownstreamDefaultTextEvent   GeneralMessageType = "DownstreamDefaultTextEvent"
+	GeneralMessageTypeDownstreamDefaultBinaryEvent GeneralMessageType = "DownstreamDefaultBinaryEvent"
+)
+
 // GeneralMessage represents a General protocol message
 type GeneralMessage struct {
 	Headers map[string]string `json:"headers,omitempty"`
@@ -43,10 +56,21 @@ func (h *AbstractGeneralWebSocketHandler) AfterConnectionEstablished(session *We
 }
 
 func (h *AbstractGeneralWebSocketHandler) HandleRawMessage(session *WebSocketSessionInfo, message *WebSocketMessage) error {
+	// Debug: log received message
+	fmt.Printf("[General] HandleRawMessage called: type=%d, payloadLen=%d, payload=%s\n",
+		message.Type, len(message.Payload), string(message.Payload))
+
+	// In Go, when a struct embeds AbstractGeneralWebSocketHandler and overrides methods,
+	// calling h.HandleGeneralTextMessage will correctly call the overridden method.
+	// However, we need to ensure we're calling through the interface to get proper dispatch.
+	// Convert to interface to ensure we call the correct implementation
+	handler := interface{}(h).(GeneralWebSocketHandler)
+
 	if message.Type == WebSocketMessageTypeText {
 		// Parse as General text message
 		generalMsg, err := ParseGeneralMessage(message)
 		if err != nil {
+			fmt.Printf("[General] Failed to parse General message: %v\n", err)
 			return err
 		}
 
@@ -58,11 +82,14 @@ func (h *AbstractGeneralWebSocketHandler) HandleRawMessage(session *WebSocketSes
 			IsBinary:   false,
 		}
 
-		// Call both handlers
-		if err := h.HandleGeneralTextMessage(session, generalMsg); err != nil {
+		// Call both handlers using the interface to ensure correct method dispatch
+		fmt.Printf("[General] Calling HandleGeneralTextMessage\n")
+		if err := handler.HandleGeneralTextMessage(session, generalMsg); err != nil {
+			fmt.Printf("[General] HandleGeneralTextMessage error: %v\n", err)
 			return err
 		}
-		return h.HandleGeneralIncomingMessage(session, incoming)
+		fmt.Printf("[General] Calling HandleGeneralIncomingMessage\n")
+		return handler.HandleGeneralIncomingMessage(session, incoming)
 
 	} else if message.Type == WebSocketMessageTypeBinary {
 		// Handle as binary message
@@ -73,13 +100,17 @@ func (h *AbstractGeneralWebSocketHandler) HandleRawMessage(session *WebSocketSes
 			IsBinary:   true,
 		}
 
-		// Call both handlers
-		if err := h.HandleGeneralBinaryMessage(session, message.Payload); err != nil {
+		// Call both handlers using the interface to ensure correct method dispatch
+		fmt.Printf("[General] Calling HandleGeneralBinaryMessage\n")
+		if err := handler.HandleGeneralBinaryMessage(session, message.Payload); err != nil {
+			fmt.Printf("[General] HandleGeneralBinaryMessage error: %v\n", err)
 			return err
 		}
-		return h.HandleGeneralIncomingMessage(session, incoming)
+		fmt.Printf("[General] Calling HandleGeneralIncomingMessage\n")
+		return handler.HandleGeneralIncomingMessage(session, incoming)
 	}
 
+	fmt.Printf("[General] Unknown message type: %d\n", message.Type)
 	return nil
 }
 
@@ -116,7 +147,7 @@ func (h *AbstractGeneralWebSocketHandler) SetSupportsPartialMessages(supports bo
 
 func ParseGeneralMessage(message *WebSocketMessage) (*GeneralMessage, error) {
 	if message.Type != WebSocketMessageTypeText {
-		return nil, fmt.Errorf("General text messages must be text format")
+		return nil, fmt.Errorf("general text messages must be text format")
 	}
 
 	var generalMsg GeneralMessage
@@ -148,12 +179,30 @@ func BuildGeneralMessage(headers map[string]string, body interface{}) *GeneralMe
 func BuildGeneralTextMessage(body string) *GeneralMessage {
 	return BuildGeneralMessage(map[string]string{
 		"Content-Type": "text/plain",
+		"type":         string(GeneralMessageTypeUpstreamDefaultTextEvent),
 	}, body)
 }
 
 func BuildGeneralJSONMessage(body interface{}) *GeneralMessage {
 	return BuildGeneralMessage(map[string]string{
 		"Content-Type": "application/json",
+		"type":         string(GeneralMessageTypeUpstreamDefaultTextEvent),
+	}, body)
+}
+
+// BuildGeneralUpstreamTextMessage builds a General upstream text message with explicit type
+func BuildGeneralUpstreamTextMessage(body interface{}) *GeneralMessage {
+	return BuildGeneralMessage(map[string]string{
+		"Content-Type": "application/json",
+		"type":         string(GeneralMessageTypeUpstreamDefaultTextEvent),
+	}, body)
+}
+
+// BuildGeneralDownstreamTextMessage builds a General downstream text message with explicit type
+func BuildGeneralDownstreamTextMessage(body interface{}) *GeneralMessage {
+	return BuildGeneralMessage(map[string]string{
+		"Content-Type": "application/json",
+		"type":         string(GeneralMessageTypeDownstreamDefaultTextEvent),
 	}, body)
 }
 

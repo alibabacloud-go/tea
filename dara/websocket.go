@@ -37,7 +37,8 @@ type WebSocketCloseFrame struct {
 }
 
 type WebSocketSessionInfo struct {
-	SessionID   string
+	SessionID   string // Session ID from server (x-acs-ws-session-id header)
+	RequestID   string // Request ID from server (x-acs-request-id header)
 	ConnectedAt time.Time
 	RemoteAddr  string
 	LocalAddr   string
@@ -93,6 +94,8 @@ type DefaultWebSocketClient struct {
 	wg             sync.WaitGroup
 	closeMu        sync.Mutex
 	closed         bool
+	ctx            context.Context    // Context for the connection lifecycle
+	cancel         context.CancelFunc // Cancel function for the context
 }
 
 func NewDefaultWebSocketClient(config *WebSocketConfig, handler WebSocketHandler) (*DefaultWebSocketClient, error) {
@@ -117,6 +120,15 @@ func NewDefaultWebSocketClient(config *WebSocketConfig, handler WebSocketHandler
 func (c *DefaultWebSocketClient) Connect(ctx context.Context) (map[string]interface{}, error) {
 	atomic.StoreInt32(&c.state, 1) // connecting
 
+	// Create a cancellable context for this connection
+	// This allows us to cancel reconnect operations when the client is closed
+	c.closeMu.Lock()
+	if c.cancel != nil {
+		c.cancel() // Cancel previous context if exists
+	}
+	c.ctx, c.cancel = context.WithCancel(ctx)
+	c.closeMu.Unlock()
+
 	u, err := url.Parse(c.config.URL)
 	if err != nil {
 		atomic.StoreInt32(&c.state, 0) // disconnected
@@ -140,7 +152,6 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context) (map[string]interf
 		header.Set(k, v)
 	}
 
-	// Debug: log headers being sent
 	fmt.Printf("[WebSocket] Handshake headers:\n")
 	for k, v := range header {
 		fmt.Printf("  %s: %v\n", k, v)
@@ -152,7 +163,6 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context) (map[string]interf
 	conn, resp, err := dialer.DialContext(connectCtx, c.config.URL, header)
 	if err != nil {
 		atomic.StoreInt32(&c.state, 0) // disconnected
-		// Debug: log response if available
 		if resp != nil {
 			fmt.Printf("[WebSocket] Handshake failed. Response status: %s\n", resp.Status)
 			fmt.Printf("[WebSocket] Response headers:\n")
@@ -166,9 +176,24 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context) (map[string]interf
 	c.conn = conn
 	atomic.StoreInt32(&c.state, 2) // connected
 
-	// Create session
+	// This avoids race condition where connection might be closed before handler is set
+	c.setupPongHandler()
+
+	// HTTP headers are case-insensitive, but Go's Header.Get() is case-insensitive
+	sessionID := ""
+	requestID := ""
+	if resp != nil && resp.Header != nil {
+		sessionID = resp.Header.Get("x-acs-ws-session-id")
+		requestID = resp.Header.Get("x-acs-request-id")
+	}
+
+	if sessionID == "" {
+		sessionID = generateSessionID()
+	}
+
 	c.session = &WebSocketSessionInfo{
-		SessionID:   generateSessionID(),
+		SessionID:   sessionID,
+		RequestID:   requestID,
 		ConnectedAt: time.Now(),
 		RemoteAddr:  conn.RemoteAddr().String(),
 		LocalAddr:   conn.LocalAddr().String(),
@@ -186,9 +211,12 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context) (map[string]interf
 	}
 
 	result := map[string]interface{}{
-		"success": true,
-		"status":  resp.StatusCode,
-		"header":  resp.Header,
+		"success":   true,
+		"status":    resp.StatusCode,
+		"header":    resp.Header,
+		"session":   c.session,
+		"sessionId": c.session.SessionID,
+		"requestId": c.session.RequestID,
 	}
 
 	return result, nil
@@ -210,13 +238,38 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 
 	c.stopPingPong()
 
-	// Close connection
+	// Signal goroutines to stop first (before closing connection)
+	// This allows goroutines to exit gracefully
+	select {
+	case <-c.stopChan:
+		// Already closed, don't close again
+	default:
+		close(c.stopChan)
+	}
+
+	// Close connection (this will cause ReadMessage to return error)
 	if c.conn != nil {
 		deadline := time.Now().Add(time.Second)
 		c.conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(code, reason),
 			deadline)
 		c.conn.Close()
+		c.conn = nil // Clear reference
+	}
+
+	// Wait for all goroutines to finish (with timeout to avoid deadlock)
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All goroutines finished
+	case <-time.After(5 * time.Second):
+		// Timeout - log warning but continue
+		fmt.Printf("[WebSocket] Warning: timeout waiting for goroutines to finish\n")
 	}
 
 	if c.session != nil {
@@ -226,8 +279,11 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 	atomic.StoreInt32(&c.state, 0) // disconnected
 	c.closed = true
 
-	close(c.stopChan)
-	c.wg.Wait()
+	// Cancel context to stop any ongoing reconnect operations
+	if c.cancel != nil {
+		c.cancel()
+		c.cancel = nil
+	}
 
 	return nil
 }
@@ -235,6 +291,13 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 func (c *DefaultWebSocketClient) Reconnect(ctx context.Context) (map[string]interface{}, error) {
 	c.reconnectMu.Lock()
 	defer c.reconnectMu.Unlock()
+
+	// Check if context is already cancelled (client might be closing)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
 
 	if !c.config.EnableReconnect {
 		return nil, errors.New("reconnect is disabled")
@@ -244,15 +307,27 @@ func (c *DefaultWebSocketClient) Reconnect(ctx context.Context) (map[string]inte
 		return nil, fmt.Errorf("max reconnect times reached: %d", c.config.MaxReconnectTimes)
 	}
 
-	if c.conn != nil {
-		c.conn.Close()
-	}
+	// Clean up resources before reconnecting
+	c.cleanupResources()
 
 	c.closed = false
 	c.stopChan = make(chan struct{})
 	c.reconnectCount++
 
-	time.Sleep(c.config.ReconnectInterval)
+	// Use context-aware sleep to allow cancellation during reconnect interval
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(c.config.ReconnectInterval):
+		// Continue with reconnect
+	}
+
+	// Check context again before attempting connection
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
 
 	result, err := c.Connect(ctx)
 	if err == nil {
@@ -260,6 +335,53 @@ func (c *DefaultWebSocketClient) Reconnect(ctx context.Context) (map[string]inte
 	}
 
 	return result, err
+}
+
+// cleanupResources cleans up all resources (ping/pong, goroutines, connection, session)
+// This is used before reconnecting to ensure a clean state
+func (c *DefaultWebSocketClient) cleanupResources() {
+	atomic.StoreInt32(&c.state, 3) // disconnecting
+
+	c.stopPingPong()
+
+	// Signal goroutines to stop first (before closing connection)
+	// This allows goroutines to exit gracefully
+	select {
+	case <-c.stopChan:
+		// Already closed, don't close again
+	default:
+		close(c.stopChan)
+	}
+
+	// Close connection (this will cause ReadMessage to return error)
+	if c.conn != nil {
+		deadline := time.Now().Add(time.Second)
+		c.conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseGoingAway, "Reconnecting"),
+			deadline)
+		c.conn.Close()
+		c.conn = nil // Clear reference
+	}
+
+	// Wait for all goroutines to finish (with timeout to avoid deadlock)
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All goroutines finished
+	case <-time.After(5 * time.Second):
+		// Timeout - log warning but continue
+		fmt.Printf("[WebSocket] Warning: timeout waiting for goroutines to finish during cleanup\n")
+	}
+
+	// Clear session (will be recreated on successful reconnect)
+	c.session = nil
+
+	atomic.StoreInt32(&c.state, 0) // disconnected
 }
 
 func (c *DefaultWebSocketClient) IsConnected() bool {
@@ -318,48 +440,74 @@ func (c *DefaultWebSocketClient) readMessages() {
 	}()
 
 	for {
+		// Check stopChan first
 		select {
 		case <-c.stopChan:
 			return
 		default:
-			if c.conn == nil {
+		}
+
+		if c.conn == nil {
+			return
+		}
+
+		// Set read deadline
+		if c.config.ReadTimeout > 0 {
+			c.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
+		}
+
+		messageType, data, err := c.conn.ReadMessage()
+		if err != nil {
+			// Check if we should stop (connection might be closed)
+			select {
+			case <-c.stopChan:
 				return
+			default:
 			}
 
-			// Set read deadline
-			if c.config.ReadTimeout > 0 {
-				c.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
-			}
-
-			messageType, data, err := c.conn.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					if c.session != nil {
-						c.handler.HandleError(c.session, err)
-					}
-				}
-
-				// Try to reconnect
-				if c.config.EnableReconnect {
-					go c.Reconnect(context.Background())
-				}
-				return
-			}
-
-			// Convert to WebSocketMessage
-			msg := &WebSocketMessage{
-				Type:      convertToWebSocketMessageType(messageType),
-				Payload:   data,
-				Headers:   make(map[string]string),
-				Timestamp: time.Now(),
-			}
-
-			// Handle message
-			if c.session != nil {
-				if err := c.handler.HandleRawMessage(c.session, msg); err != nil {
+			// Connection closed or other error
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				if c.session != nil {
 					c.handler.HandleError(c.session, err)
 				}
 			}
+
+			// Try to reconnect only if not stopping
+			select {
+			case <-c.stopChan:
+				return
+			default:
+				if c.config.EnableReconnect {
+					// Use the connection's context so reconnect can be cancelled
+					c.closeMu.Lock()
+					reconnectCtx := c.ctx
+					c.closeMu.Unlock()
+					if reconnectCtx != nil {
+						go c.Reconnect(reconnectCtx)
+					}
+				}
+			}
+			return
+		}
+
+		msg := &WebSocketMessage{
+			Type:      convertToWebSocketMessageType(messageType),
+			Payload:   data,
+			Headers:   make(map[string]string),
+			Timestamp: time.Now(),
+		}
+
+		fmt.Printf("[WebSocket] Received message: type=%d, size=%d bytes\n", messageType, len(data))
+
+		if c.session != nil {
+			// Check if handler is an AWAP handler - if so, it will handle the message through HandleRawMessage
+			// which will parse and route to HandleAwapMessage/HandleAwapIncomingMessage
+			if err := c.handler.HandleRawMessage(c.session, msg); err != nil {
+				fmt.Printf("[WebSocket] HandleRawMessage error: %v\n", err)
+				c.handler.HandleError(c.session, err)
+			}
+		} else {
+			fmt.Printf("[WebSocket] Warning: session is nil, cannot handle message\n")
 		}
 	}
 }
@@ -380,7 +528,6 @@ func (c *DefaultWebSocketClient) startPingPong() {
 					return
 				}
 
-				// Send ping
 				deadline := time.Now().Add(c.config.WriteTimeout)
 				if err := c.conn.WriteControl(websocket.PingMessage, []byte{}, deadline); err != nil {
 					if c.session != nil {
@@ -396,24 +543,35 @@ func (c *DefaultWebSocketClient) startPingPong() {
 				case <-time.After(c.config.PongTimeout):
 					// Pong timeout, try to reconnect
 					if c.config.EnableReconnect {
-						go c.Reconnect(context.Background())
+						// Use the connection's context so reconnect can be cancelled
+						c.closeMu.Lock()
+						reconnectCtx := c.ctx
+						c.closeMu.Unlock()
+						if reconnectCtx != nil {
+							go c.Reconnect(reconnectCtx)
+						}
 					}
 					return
 				}
 			}
 		}
 	}()
+}
 
-	// Setup pong handler
-	if c.conn != nil {
-		c.conn.SetPongHandler(func(appData string) error {
-			select {
-			case c.pongReceived <- struct{}{}:
-			default:
-			}
-			return nil
-		})
+// setupPongHandler sets up the pong handler for the WebSocket connection
+// This should be called immediately after connection is established to avoid race conditions
+func (c *DefaultWebSocketClient) setupPongHandler() {
+	if c.conn == nil {
+		return
 	}
+	c.conn.SetPongHandler(func(appData string) error {
+		select {
+		case c.pongReceived <- struct{}{}:
+		default:
+			// Channel is full, drop the pong signal (connection is already known to be alive)
+		}
+		return nil
+	})
 }
 
 func (c *DefaultWebSocketClient) stopPingPong() {
