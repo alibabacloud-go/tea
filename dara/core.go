@@ -32,148 +32,130 @@ import (
 
 type RuntimeOptions = util.RuntimeOptions
 
-type ExtendedRuntimeOptions struct {
-	util.RuntimeOptions
-
-	Listener interface{} `json:"listener" xml:"listener"`
-	Tracker  interface{} `json:"tracker" xml:"tracker"`
-
-	// WebSocket Specific Configuration
-	WebSocketPingInterval      *int  `json:"webSocketPingInterval" xml:"webSocketPingInterval"`           // Ping 间隔（毫秒）
-	WebSocketPongTimeout       *int  `json:"webSocketPongTimeout" xml:"webSocketPongTimeout"`             // Pong 超时（毫秒）
-	WebSocketMaxMessageSize    *int  `json:"webSocketMaxMessageSize" xml:"webSocketMaxMessageSize"`       // 最大消息大小（字节）
-	WebSocketEnableReconnect   *bool `json:"webSocketEnableReconnect" xml:"webSocketEnableReconnect"`     // 是否启用自动重连
-	WebSocketReconnectInterval *int  `json:"webSocketReconnectInterval" xml:"webSocketReconnectInterval"` // 重连间隔（毫秒）
-	WebSocketMaxReconnectTimes *int  `json:"webSocketMaxReconnectTimes" xml:"webSocketMaxReconnectTimes"` // 最大重连次数
-	WebSocketWriteTimeout      *int  `json:"webSocketWriteTimeout" xml:"webSocketWriteTimeout"`           // 写入超时（毫秒）
-	WebSocketHandshakeTimeout  *int  `json:"webSocketHandshakeTimeout" xml:"webSocketHandshakeTimeout"`   // 握手超时（毫秒）
-	WebSocketEnableCompression *bool `json:"webSocketEnableCompression" xml:"webSocketEnableCompression"` // 是否启用压缩
-}
-
 type ExtendsParameters = util.ExtendsParameters
 
-// ToUtilRuntimeOptions converts ExtendedRuntimeOptions to util.RuntimeOptions
-func (r *ExtendedRuntimeOptions) ToUtilRuntimeOptions() *util.RuntimeOptions {
-	if r == nil {
-		return nil
-	}
-	return &r.RuntimeOptions
-}
-
-// ToRuntimeOptions converts ExtendedRuntimeOptions to RuntimeOptions (type alias)
-func (r *ExtendedRuntimeOptions) ToRuntimeOptions() *RuntimeOptions {
-	if r == nil {
-		return nil
-	}
-	return &r.RuntimeOptions
-}
-
-// NewExtendedRuntimeOptions creates ExtendedRuntimeOptions from util.RuntimeOptions
-// This allows backward compatibility: existing code using util.RuntimeOptions can be extended
-func NewExtendedRuntimeOptions(base *util.RuntimeOptions) *ExtendedRuntimeOptions {
-	if base == nil {
-		return &ExtendedRuntimeOptions{}
-	}
-	return &ExtendedRuntimeOptions{
-		RuntimeOptions: *base,
-	}
-}
-
-// GetWebSocketConfig extracts WebSocket configuration from RuntimeOptions
-// This function allows accessing WebSocket config even when using the type alias
-// It checks if the runtime is ExtendedRuntimeOptions and extracts WebSocket fields
 // Returns a map of WebSocket config values that can be used to configure WebSocket connections
 func GetWebSocketConfig(runtime interface{}) map[string]interface{} {
 	if runtime == nil {
 		return nil
 	}
 
-	// Type assertion to check if it's ExtendedRuntimeOptions
-	if ext, ok := runtime.(*ExtendedRuntimeOptions); ok {
-		return map[string]interface{}{
-			"webSocketPingInterval":      ext.WebSocketPingInterval,
-			"webSocketPongTimeout":       ext.WebSocketPongTimeout,
-			"webSocketMaxMessageSize":    ext.WebSocketMaxMessageSize,
-			"webSocketEnableReconnect":   ext.WebSocketEnableReconnect,
-			"webSocketReconnectInterval": ext.WebSocketReconnectInterval,
-			"webSocketMaxReconnectTimes": ext.WebSocketMaxReconnectTimes,
-			"webSocketWriteTimeout":      ext.WebSocketWriteTimeout,
-			"webSocketHandshakeTimeout":  ext.WebSocketHandshakeTimeout,
-			"webSocketEnableCompression": ext.WebSocketEnableCompression,
-		}
+	rt, ok := runtime.(*RuntimeOptions)
+	if !ok {
+		return nil
 	}
-	return nil
+
+	return map[string]interface{}{
+		"webSocketPingInterval":      rt.WebSocketPingInterval,
+		"webSocketPongTimeout":       rt.WebSocketPongTimeout,
+		"webSocketMaxMessageSize":    rt.WebSocketMaxMessageSize,
+		"webSocketEnableReconnect":   rt.WebSocketEnableReconnect,
+		"webSocketReconnectInterval": rt.WebSocketReconnectInterval,
+		"webSocketMaxReconnectTimes": rt.WebSocketMaxReconnectTimes,
+		"webSocketWriteTimeout":      rt.WebSocketWriteTimeout,
+		"webSocketHandshakeTimeout":  rt.WebSocketHandshakeTimeout,
+		"webSocketEnableCompression": rt.WebSocketEnableCompression,
+	}
 }
 
-// GetWebSocketPingInterval safely extracts WebSocketPingInterval from runtime
-// Works with both *RuntimeOptions (type alias) and *ExtendedRuntimeOptions
 func GetWebSocketPingInterval(runtime interface{}) *int {
-	if ext, ok := runtime.(*ExtendedRuntimeOptions); ok {
-		return ext.WebSocketPingInterval
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketPingInterval
 	}
 	return nil
 }
 
-// GetWebSocketPongTimeout safely extracts WebSocketPongTimeout from runtime
 func GetWebSocketPongTimeout(runtime interface{}) *int {
-	if ext, ok := runtime.(*ExtendedRuntimeOptions); ok {
-		return ext.WebSocketPongTimeout
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketPongTimeout
 	}
 	return nil
 }
 
-// GetWebSocketMaxMessageSize safely extracts WebSocketMaxMessageSize from runtime
 func GetWebSocketMaxMessageSize(runtime interface{}) *int {
-	if ext, ok := runtime.(*ExtendedRuntimeOptions); ok {
-		return ext.WebSocketMaxMessageSize
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketMaxMessageSize
 	}
 	return nil
 }
 
-// GetWebSocketEnableReconnect safely extracts WebSocketEnableReconnect from runtime
 func GetWebSocketEnableReconnect(runtime interface{}) *bool {
-	if ext, ok := runtime.(*ExtendedRuntimeOptions); ok {
-		return ext.WebSocketEnableReconnect
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketEnableReconnect
 	}
 	return nil
 }
 
-// GetWebSocketReconnectInterval safely extracts WebSocketReconnectInterval from runtime
 func GetWebSocketReconnectInterval(runtime interface{}) *int {
-	if ext, ok := runtime.(*ExtendedRuntimeOptions); ok {
-		return ext.WebSocketReconnectInterval
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketReconnectInterval
 	}
 	return nil
 }
 
-// GetWebSocketMaxReconnectTimes safely extracts WebSocketMaxReconnectTimes from runtime
 func GetWebSocketMaxReconnectTimes(runtime interface{}) *int {
-	if ext, ok := runtime.(*ExtendedRuntimeOptions); ok {
-		return ext.WebSocketMaxReconnectTimes
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketMaxReconnectTimes
 	}
 	return nil
 }
 
-// GetWebSocketWriteTimeout safely extracts WebSocketWriteTimeout from runtime
 func GetWebSocketWriteTimeout(runtime interface{}) *int {
-	if ext, ok := runtime.(*ExtendedRuntimeOptions); ok {
-		return ext.WebSocketWriteTimeout
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketWriteTimeout
 	}
 	return nil
 }
 
-// GetWebSocketHandshakeTimeout safely extracts WebSocketHandshakeTimeout from runtime
 func GetWebSocketHandshakeTimeout(runtime interface{}) *int {
-	if ext, ok := runtime.(*ExtendedRuntimeOptions); ok {
-		return ext.WebSocketHandshakeTimeout
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketHandshakeTimeout
 	}
 	return nil
 }
 
-// GetWebSocketEnableCompression safely extracts WebSocketEnableCompression from runtime
 func GetWebSocketEnableCompression(runtime interface{}) *bool {
-	if ext, ok := runtime.(*ExtendedRuntimeOptions); ok {
-		return ext.WebSocketEnableCompression
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketEnableCompression
+	}
+	return nil
+}
+
+// GetWebSocketHandler safely extracts WebSocketHandler from runtime
+// Returns the handler as interface{} which can be type-asserted to WebSocketHandler
+func GetWebSocketHandler(runtime interface{}) interface{} {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketHandler
 	}
 	return nil
 }
@@ -256,6 +238,18 @@ type RuntimeObject struct {
 	RetryOptions      *RetryOptions          `json:"retryOptions" xml:"retryOptions"`
 	ExtendsParameters *ExtendsParameters     `json:"extendsParameters,omitempty" xml:"extendsParameters,omitempty"`
 	HttpClient
+
+	// WebSocket-specific configuration
+	WebSocketPingInterval      *int        `json:"webSocketPingInterval" xml:"webSocketPingInterval"`
+	WebSocketPongTimeout       *int        `json:"webSocketPongTimeout" xml:"webSocketPongTimeout"`
+	WebSocketMaxMessageSize    *int        `json:"webSocketMaxMessageSize" xml:"webSocketMaxMessageSize"`
+	WebSocketEnableReconnect   *bool       `json:"webSocketEnableReconnect" xml:"webSocketEnableReconnect"`
+	WebSocketReconnectInterval *int        `json:"webSocketReconnectInterval" xml:"webSocketReconnectInterval"`
+	WebSocketMaxReconnectTimes *int        `json:"webSocketMaxReconnectTimes" xml:"webSocketMaxReconnectTimes"`
+	WebSocketWriteTimeout      *int        `json:"webSocketWriteTimeout" xml:"webSocketWriteTimeout"`
+	WebSocketHandshakeTimeout  *int        `json:"webSocketHandshakeTimeout" xml:"webSocketHandshakeTimeout"`
+	WebSocketEnableCompression *bool       `json:"webSocketEnableCompression" xml:"webSocketEnableCompression"`
+	WebSocketHandler           interface{} `json:"-" xml:"-"` // WebSocket handler (not serialized)
 }
 
 func (r *RuntimeObject) getClientTag(domain string) string {
@@ -285,6 +279,16 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 		Key:            TransInterfaceToString(runtime["key"]),
 		Cert:           TransInterfaceToString(runtime["cert"]),
 		Ca:             TransInterfaceToString(runtime["ca"]),
+		// WebSocket-specific configuration
+		WebSocketPingInterval:      TransInterfaceToInt(runtime["webSocketPingInterval"]),
+		WebSocketPongTimeout:       TransInterfaceToInt(runtime["webSocketPongTimeout"]),
+		WebSocketMaxMessageSize:    TransInterfaceToInt(runtime["webSocketMaxMessageSize"]),
+		WebSocketEnableReconnect:   TransInterfaceToBool(runtime["webSocketEnableReconnect"]),
+		WebSocketReconnectInterval: TransInterfaceToInt(runtime["webSocketReconnectInterval"]),
+		WebSocketMaxReconnectTimes: TransInterfaceToInt(runtime["webSocketMaxReconnectTimes"]),
+		WebSocketWriteTimeout:      TransInterfaceToInt(runtime["webSocketWriteTimeout"]),
+		WebSocketHandshakeTimeout:  TransInterfaceToInt(runtime["webSocketHandshakeTimeout"]),
+		WebSocketEnableCompression: TransInterfaceToBool(runtime["webSocketEnableCompression"]),
 	}
 	if runtime["listener"] != nil {
 		runtimeObject.Listener = runtime["listener"].(utils.ProgressListener)
@@ -300,6 +304,9 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 	}
 	if runtime["retryOptions"] != nil {
 		runtimeObject.RetryOptions = runtime["retryOptions"].(*RetryOptions)
+	}
+	if runtime["webSocketHandler"] != nil {
+		runtimeObject.WebSocketHandler = runtime["webSocketHandler"]
 	}
 	return runtimeObject
 }

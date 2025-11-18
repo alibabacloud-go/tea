@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -44,46 +45,11 @@ func (h *MockWebSocketHandler) SupportsPartialMessages() bool {
 	return false
 }
 
-func TestWebSocketConfig(t *testing.T) {
-	config := &WebSocketConfig{
-		URL:               "ws://localhost:8080",
-		Headers:           make(map[string]string),
-		ConnectTimeout:    10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		HandshakeTimeout:  5 * time.Second,
-		PingInterval:      15 * time.Second,
-		PongTimeout:       5 * time.Second,
-		MaxMessageSize:    1024 * 1024,
-		EnableReconnect:   true,
-		ReconnectInterval: 3 * time.Second,
-		MaxReconnectTimes: 5,
-	}
-
-	if config.URL != "ws://localhost:8080" {
-		t.Errorf("Expected URL 'ws://localhost:8080', got '%s'", config.URL)
-	}
-
-	if config.EnableReconnect != true {
-		t.Error("Expected EnableReconnect to be true")
-	}
-}
-
 func TestWebSocketClientCreation(t *testing.T) {
-	config := &WebSocketConfig{
-		URL:               "ws://localhost:8080",
-		Headers:           make(map[string]string),
-		ConnectTimeout:    10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		EnableReconnect:   true,
-		ReconnectInterval: 3 * time.Second,
-		MaxReconnectTimes: 5,
-	}
-
 	handler := &MockWebSocketHandler{}
 
-	client, err := NewDefaultWebSocketClient(config, handler)
+	// Test new API: NewDefaultWebSocketClient only takes handler
+	client, err := NewDefaultWebSocketClient(handler)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
@@ -96,12 +62,8 @@ func TestWebSocketClientCreation(t *testing.T) {
 		t.Error("Client should not be connected initially")
 	}
 
-	_, err = NewDefaultWebSocketClient(nil, handler)
-	if err == nil {
-		t.Error("Expected error when config is nil")
-	}
-
-	_, err = NewDefaultWebSocketClient(config, nil)
+	// Test error cases
+	_, err = NewDefaultWebSocketClient(nil)
 	if err == nil {
 		t.Error("Expected error when handler is nil")
 	}
@@ -241,19 +203,24 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 	wsURL := "ws" + server.URL[4:] // Replace "http" with "ws"
 
 	t.Run("Successful connection", func(t *testing.T) {
-		config := &WebSocketConfig{
-			URL:              wsURL,
-			Headers:          make(map[string]string),
-			ConnectTimeout:   5 * time.Second,
-			ReadTimeout:      30 * time.Second,
-			WriteTimeout:     10 * time.Second,
-			HandshakeTimeout: 5 * time.Second,
-			PingInterval:     0, // Disable ping for this test
-			EnableReconnect:  false,
-		}
+		// Create Request (matching DoRequest pattern)
+		request := NewRequest()
+		u, _ := url.Parse(wsURL)
+		request.Protocol = String(u.Scheme)
+		request.Domain = String(u.Host)
+		request.Pathname = String(u.Path)
+		request.Headers = make(map[string]*string)
+
+		// Create RuntimeObject (matching DoRequest pattern)
+		runtimeObject := NewRuntimeObject(map[string]interface{}{
+			"connectTimeout":           Int(5000),
+			"readTimeout":              Int(30000),
+			"webSocketPingInterval":    Int(0), // Disable ping for this test
+			"webSocketEnableReconnect": Bool(false),
+		})
 
 		handler := &MockWebSocketHandler{}
-		client, err := NewDefaultWebSocketClient(config, handler)
+		client, err := NewDefaultWebSocketClient(handler)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
@@ -265,7 +232,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 
 		// Connect
 		ctx := context.Background()
-		result, err := client.Connect(ctx)
+		result, err := client.Connect(ctx, request, runtimeObject)
 		if err != nil {
 			t.Fatalf("Connect failed: %v", err)
 		}
@@ -299,23 +266,25 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 	})
 
 	t.Run("Invalid URL", func(t *testing.T) {
-		config := &WebSocketConfig{
-			URL:              "invalid-url://test",
-			Headers:          make(map[string]string),
-			ConnectTimeout:   5 * time.Second,
-			ReadTimeout:      30 * time.Second,
-			WriteTimeout:     10 * time.Second,
-			HandshakeTimeout: 5 * time.Second,
-		}
+		// Create Request with invalid URL
+		request := NewRequest()
+		request.Protocol = String("invalid-url")
+		request.Domain = String("test")
+		request.Headers = make(map[string]*string)
+
+		runtimeObject := NewRuntimeObject(map[string]interface{}{
+			"connectTimeout": Int(5000),
+			"readTimeout":    Int(30000),
+		})
 
 		handler := &MockWebSocketHandler{}
-		client, err := NewDefaultWebSocketClient(config, handler)
+		client, err := NewDefaultWebSocketClient(handler)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
 
 		ctx := context.Background()
-		result, err := client.Connect(ctx)
+		result, err := client.Connect(ctx, request, runtimeObject)
 		if err == nil {
 			t.Error("Expected error for invalid URL")
 		}
@@ -332,23 +301,26 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 
 	t.Run("Connection timeout", func(t *testing.T) {
 		// Use a non-existent server with very short timeout
-		config := &WebSocketConfig{
-			URL:              "ws://127.0.0.1:99999", // Non-existent port
-			Headers:          make(map[string]string),
-			ConnectTimeout:   100 * time.Millisecond, // Very short timeout
-			ReadTimeout:      30 * time.Second,
-			WriteTimeout:     10 * time.Second,
-			HandshakeTimeout: 100 * time.Millisecond,
-		}
+		request := NewRequest()
+		request.Protocol = String("ws")
+		request.Domain = String("127.0.0.1:99999") // Non-existent port
+		request.Pathname = String("/")
+		request.Headers = make(map[string]*string)
+
+		runtimeObject := NewRuntimeObject(map[string]interface{}{
+			"connectTimeout":            Int(100), // Very short timeout
+			"readTimeout":               Int(30000),
+			"webSocketHandshakeTimeout": Int(100),
+		})
 
 		handler := &MockWebSocketHandler{}
-		client, err := NewDefaultWebSocketClient(config, handler)
+		client, err := NewDefaultWebSocketClient(handler)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
 
 		ctx := context.Background()
-		result, err := client.Connect(ctx)
+		result, err := client.Connect(ctx, request, runtimeObject)
 		if err == nil {
 			t.Error("Expected error for connection timeout")
 		}
@@ -369,27 +341,30 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 	})
 
 	t.Run("Connection with custom headers", func(t *testing.T) {
-		config := &WebSocketConfig{
-			URL: wsURL,
-			Headers: map[string]string{
-				"X-Custom-Header": "test-value",
-				"User-Agent":      "test-agent",
-			},
-			ConnectTimeout:   5 * time.Second,
-			ReadTimeout:      30 * time.Second,
-			WriteTimeout:     10 * time.Second,
-			HandshakeTimeout: 5 * time.Second,
-			PingInterval:     0,
+		request := NewRequest()
+		u, _ := url.Parse(wsURL)
+		request.Protocol = String(u.Scheme)
+		request.Domain = String(u.Host)
+		request.Pathname = String(u.Path)
+		request.Headers = map[string]*string{
+			"X-Custom-Header": String("test-value"),
+			"User-Agent":      String("test-agent"),
 		}
 
+		runtimeObject := NewRuntimeObject(map[string]interface{}{
+			"connectTimeout":        Int(5000),
+			"readTimeout":           Int(30000),
+			"webSocketPingInterval": Int(0),
+		})
+
 		handler := &MockWebSocketHandler{}
-		client, err := NewDefaultWebSocketClient(config, handler)
+		client, err := NewDefaultWebSocketClient(handler)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
 
 		ctx := context.Background()
-		result, err := client.Connect(ctx)
+		result, err := client.Connect(ctx, request, runtimeObject)
 		if err != nil {
 			t.Fatalf("Connect failed: %v", err)
 		}
@@ -404,23 +379,26 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 
 	t.Run("Handler error on connection established", func(t *testing.T) {
 		errorHandler := &ErrorOnConnectHandler{}
-		config := &WebSocketConfig{
-			URL:              wsURL,
-			Headers:          make(map[string]string),
-			ConnectTimeout:   5 * time.Second,
-			ReadTimeout:      30 * time.Second,
-			WriteTimeout:     10 * time.Second,
-			HandshakeTimeout: 5 * time.Second,
-			PingInterval:     0,
-		}
+		request := NewRequest()
+		u, _ := url.Parse(wsURL)
+		request.Protocol = String(u.Scheme)
+		request.Domain = String(u.Host)
+		request.Pathname = String(u.Path)
+		request.Headers = make(map[string]*string)
 
-		client, err := NewDefaultWebSocketClient(config, errorHandler)
+		runtimeObject := NewRuntimeObject(map[string]interface{}{
+			"connectTimeout":        Int(5000),
+			"readTimeout":           Int(30000),
+			"webSocketPingInterval": Int(0),
+		})
+
+		client, err := NewDefaultWebSocketClient(errorHandler)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
 
 		ctx := context.Background()
-		result, err := client.Connect(ctx)
+		result, err := client.Connect(ctx, request, runtimeObject)
 		if err == nil {
 			t.Error("Expected error when handler returns error")
 		}
@@ -434,25 +412,28 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 	})
 
 	t.Run("Connection with ping interval", func(t *testing.T) {
-		config := &WebSocketConfig{
-			URL:              wsURL,
-			Headers:          make(map[string]string),
-			ConnectTimeout:   5 * time.Second,
-			ReadTimeout:      30 * time.Second,
-			WriteTimeout:     10 * time.Second,
-			HandshakeTimeout: 5 * time.Second,
-			PingInterval:     1 * time.Second, // Enable ping
-			PongTimeout:      500 * time.Millisecond,
-		}
+		request := NewRequest()
+		u, _ := url.Parse(wsURL)
+		request.Protocol = String(u.Scheme)
+		request.Domain = String(u.Host)
+		request.Pathname = String(u.Path)
+		request.Headers = make(map[string]*string)
+
+		runtimeObject := NewRuntimeObject(map[string]interface{}{
+			"connectTimeout":        Int(5000),
+			"readTimeout":           Int(30000),
+			"webSocketPingInterval": Int(1000), // Enable ping
+			"webSocketPongTimeout":  Int(500),
+		})
 
 		handler := &MockWebSocketHandler{}
-		client, err := NewDefaultWebSocketClient(config, handler)
+		client, err := NewDefaultWebSocketClient(handler)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
 
 		ctx := context.Background()
-		result, err := client.Connect(ctx)
+		result, err := client.Connect(ctx, request, runtimeObject)
 		if err != nil {
 			t.Fatalf("Connect failed: %v", err)
 		}

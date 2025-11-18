@@ -10,11 +10,6 @@ import (
 type AwapMessageType string
 
 const (
-	// Generic types (for internal use)
-	AwapMessageTypeRequest  AwapMessageType = "request"
-	AwapMessageTypeResponse AwapMessageType = "response"
-	AwapMessageTypeEvent    AwapMessageType = "event"
-
 	// Upstream event types (client -> server)
 	AwapMessageTypeUpstreamTextEvent    AwapMessageType = "UpstreamTextEvent"
 	AwapMessageTypeUpstreamBinaryEvent  AwapMessageType = "UpstreamBinaryEvent"
@@ -75,22 +70,8 @@ func (h *AbstractAwapWebSocketHandler) HandleRawMessage(session *WebSocketSessio
 		return err
 	}
 
-	// Debug: log received message type
-	fmt.Printf("[AWAP] Received message: type=%s, id=%s, seq=%d\n", awapMsg.Type, awapMsg.ID, awapMsg.Seq)
+	fmt.Printf("[tea AWAP] Received message: type=%s, id=%s, seq=%d\n", awapMsg.Type, awapMsg.ID, awapMsg.Seq)
 
-	// All AWAP messages should be handled through HandleAwapMessage first
-	// This includes both upstream and downstream messages
-	// Then, if it's an event type, also call HandleAwapIncomingMessage
-
-	// The key issue: h is *AbstractAwapWebSocketHandler, but we need to call the overridden method.
-	// When SequentialHandler.HandleRawMessage calls h.AbstractAwapWebSocketHandler.HandleRawMessage,
-	// the receiver in this method is *AbstractAwapWebSocketHandler, not *SequentialHandler.
-	//
-	// Solution: Since SequentialHandler now overrides HandleRawMessage and calls HandleAwapMessage
-	// directly, this code path should only be called for handlers that don't override HandleRawMessage.
-	// For those cases, we'll try to call through the interface, but it may still call the default implementation.
-
-	// Try interface assertion
 	handler, ok := interface{}(h).(AwapWebSocketHandler)
 	if !ok {
 		fmt.Printf("[AWAP] ERROR: handler does not implement AwapWebSocketHandler interface, type=%T\n", h)
@@ -110,8 +91,7 @@ func (h *AbstractAwapWebSocketHandler) HandleRawMessage(session *WebSocketSessio
 	fmt.Printf("[AWAP] HandleAwapMessage completed successfully\n")
 
 	// For event types (both upstream and downstream), also call HandleAwapIncomingMessage
-	if awapMsg.Type == AwapMessageTypeEvent ||
-		awapMsg.Type == AwapMessageTypeUpstreamTextEvent ||
+	if awapMsg.Type == AwapMessageTypeUpstreamTextEvent ||
 		awapMsg.Type == AwapMessageTypeUpstreamBinaryEvent ||
 		awapMsg.Type == AwapMessageTypeAckRequiredTextEvent ||
 		awapMsg.Type == AwapMessageTypeMessageReceiveEvent ||
@@ -244,33 +224,6 @@ func ParseAwapMessage(message *WebSocketMessage) (*AwapMessage, error) {
 	}
 
 	return awapMsg, nil
-}
-
-func BuildAwapMessage(msgType AwapMessageType, id string, seq int64, payload interface{}) *AwapMessage {
-	return &AwapMessage{
-		Type:    msgType,
-		ID:      id,
-		Seq:     seq,
-		Payload: payload,
-		Headers: make(map[string]string),
-	}
-}
-
-func BuildAwapRequest(id string, seq int64, payload interface{}) *AwapMessage {
-	// Use UpstreamTextEvent for text requests (as expected by server)
-	return BuildAwapMessage(AwapMessageTypeUpstreamTextEvent, id, seq, payload)
-}
-
-func BuildAwapResponse(id string, seq int64, status int, data interface{}) *AwapMessage {
-	msg := BuildAwapMessage(AwapMessageTypeResponse, id, seq, nil)
-	msg.Status = status
-	msg.Data = map[string]interface{}{"result": data}
-	return msg
-}
-
-func BuildAwapEvent(id string, seq int64, payload interface{}) *AwapMessage {
-	// Use UpstreamTextEvent for text events (as expected by server)
-	return BuildAwapMessage(AwapMessageTypeUpstreamTextEvent, id, seq, payload)
 }
 
 func (m *AwapMessage) ToJSON() ([]byte, error) {
