@@ -3,6 +3,7 @@ package dara
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 )
 
 type GeneralMessageType string
@@ -29,17 +30,13 @@ type GeneralIncomingMessage struct {
 	IsBinary   bool
 }
 
-// GeneralWebSocketHandler handles General protocol messages
 type GeneralWebSocketHandler interface {
 	WebSocketHandler
 
-	// HandleGeneralTextMessage handles General protocol text messages
 	HandleGeneralTextMessage(session *WebSocketSessionInfo, message *GeneralMessage) error
 
-	// HandleGeneralBinaryMessage handles General protocol binary messages
 	HandleGeneralBinaryMessage(session *WebSocketSessionInfo, data []byte) error
 
-	// HandleGeneralIncomingMessage handles incoming General messages
 	HandleGeneralIncomingMessage(session *WebSocketSessionInfo, message *GeneralIncomingMessage) error
 }
 
@@ -75,17 +72,25 @@ func (h *AbstractGeneralWebSocketHandler) HandleRawMessage(session *WebSocketSes
 			IsBinary:   false,
 		}
 
-		// Call both handlers using the interface to ensure correct method dispatch
 		fmt.Printf("[General] Calling HandleGeneralTextMessage\n")
 		if err := handler.HandleGeneralTextMessage(session, generalMsg); err != nil {
 			fmt.Printf("[General] HandleGeneralTextMessage error: %v\n", err)
 			return err
 		}
-		fmt.Printf("[General] Calling HandleGeneralIncomingMessage\n")
-		return handler.HandleGeneralIncomingMessage(session, incoming)
+
+		if hasCustomHandleGeneralIncomingMessage(handler) {
+			fmt.Printf("[General] Calling HandleGeneralIncomingMessage\n")
+			if err := handler.HandleGeneralIncomingMessage(session, incoming); err != nil {
+				fmt.Printf("[General] HandleGeneralIncomingMessage error: %v\n", err)
+				// Continue anyway, as the message was already handled by HandleGeneralTextMessage
+			}
+		} else {
+			fmt.Printf("[General] HandleGeneralIncomingMessage not implemented, skipping\n")
+		}
+
+		return nil
 
 	} else if message.Type == WebSocketMessageTypeBinary {
-		// Handle as binary message
 		incoming := &GeneralIncomingMessage{
 			Headers:    make(map[string]string),
 			Body:       nil,
@@ -93,14 +98,23 @@ func (h *AbstractGeneralWebSocketHandler) HandleRawMessage(session *WebSocketSes
 			IsBinary:   true,
 		}
 
-		// Call both handlers using the interface to ensure correct method dispatch
 		fmt.Printf("[General] Calling HandleGeneralBinaryMessage\n")
 		if err := handler.HandleGeneralBinaryMessage(session, message.Payload); err != nil {
 			fmt.Printf("[General] HandleGeneralBinaryMessage error: %v\n", err)
 			return err
 		}
-		fmt.Printf("[General] Calling HandleGeneralIncomingMessage\n")
-		return handler.HandleGeneralIncomingMessage(session, incoming)
+
+		if hasCustomHandleGeneralIncomingMessage(handler) {
+			fmt.Printf("[General] Calling HandleGeneralIncomingMessage\n")
+			if err := handler.HandleGeneralIncomingMessage(session, incoming); err != nil {
+				fmt.Printf("[General] HandleGeneralIncomingMessage error: %v\n", err)
+				// Continue anyway, as the message was already handled by HandleGeneralBinaryMessage
+			}
+		} else {
+			fmt.Printf("[General] HandleGeneralIncomingMessage not implemented, skipping\n")
+		}
+
+		return nil
 	}
 
 	fmt.Printf("[General] Unknown message type: %d\n", message.Type)
@@ -120,6 +134,40 @@ func (h *AbstractGeneralWebSocketHandler) HandleGeneralBinaryMessage(session *We
 func (h *AbstractGeneralWebSocketHandler) HandleGeneralIncomingMessage(session *WebSocketSessionInfo, message *GeneralIncomingMessage) error {
 	// Default implementation - can be overridden
 	return nil
+}
+
+func hasCustomHandleGeneralIncomingMessage(handler GeneralWebSocketHandler) bool {
+	handlerType := reflect.TypeOf(handler)
+	if handlerType == nil {
+		return false
+	}
+
+	if handlerType.Kind() == reflect.Ptr {
+		handlerType = handlerType.Elem()
+	}
+
+	if handlerType == reflect.TypeOf((*AbstractGeneralWebSocketHandler)(nil)).Elem() {
+		return false
+	}
+
+	defaultHandler := &AbstractGeneralWebSocketHandler{}
+	defaultMethodValue := reflect.ValueOf(defaultHandler).MethodByName("HandleGeneralIncomingMessage")
+
+	handlerValue := reflect.ValueOf(handler)
+	if handlerValue.Kind() == reflect.Ptr && handlerValue.IsNil() {
+		return false
+	}
+	handlerMethodValue := handlerValue.MethodByName("HandleGeneralIncomingMessage")
+
+	if !handlerMethodValue.IsValid() {
+		return false
+	}
+
+	if handlerMethodValue.Pointer() == defaultMethodValue.Pointer() {
+		return false
+	}
+
+	return true
 }
 
 func (h *AbstractGeneralWebSocketHandler) HandleError(session *WebSocketSessionInfo, err error) error {

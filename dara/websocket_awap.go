@@ -3,6 +3,7 @@ package dara
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -19,6 +20,9 @@ const (
 	AwapMessageTypeMessageReceiveEvent   AwapMessageType = "MessageReceiveEvent"
 	AwapMessageTypeDownstreamTextEvent   AwapMessageType = "DownstreamTextEvent"
 	AwapMessageTypeDownstreamBinaryEvent AwapMessageType = "DownstreamBinaryEvent"
+
+	// Control message types (server -> client)
+	AwapMessageTypeReconnect AwapMessageType = "RECONNECT" // Server-initiated graceful reconnection
 )
 
 type AwapMessageFormat string
@@ -48,10 +52,8 @@ type AwapIncomingMessage struct {
 type AwapWebSocketHandler interface {
 	WebSocketHandler
 
-	// HandleAwapMessage handles AWAP protocol messages
 	HandleAwapMessage(session *WebSocketSessionInfo, message *AwapMessage) error
 
-	// HandleAwapIncomingMessage handles incoming AWAP messages
 	HandleAwapIncomingMessage(session *WebSocketSessionInfo, message *AwapIncomingMessage) error
 }
 
@@ -81,7 +83,11 @@ func (h *AbstractAwapWebSocketHandler) HandleRawMessage(session *WebSocketSessio
 	fmt.Printf("[AWAP] Handler type: %T, interface handler type: %T\n", h, handler)
 	fmt.Printf("[AWAP] Calling HandleAwapMessage for type=%s\n", awapMsg.Type)
 
-	// Call HandleAwapMessage through the interface
+	// before calling HandleRawMessage, so it won't reach here. This check is kept for completeness.
+	if awapMsg.Type == AwapMessageTypeReconnect {
+		fmt.Printf("[AWAP] RECONNECT control message detected (should have been handled earlier)\n")
+	}
+
 	// Note: This will call the default implementation if handler is *AbstractAwapWebSocketHandler
 	if err := handler.HandleAwapMessage(session, awapMsg); err != nil {
 		fmt.Printf("[AWAP] HandleAwapMessage error: %v\n", err)
@@ -90,13 +96,7 @@ func (h *AbstractAwapWebSocketHandler) HandleRawMessage(session *WebSocketSessio
 
 	fmt.Printf("[AWAP] HandleAwapMessage completed successfully\n")
 
-	// For event types (both upstream and downstream), also call HandleAwapIncomingMessage
-	if awapMsg.Type == AwapMessageTypeUpstreamTextEvent ||
-		awapMsg.Type == AwapMessageTypeUpstreamBinaryEvent ||
-		awapMsg.Type == AwapMessageTypeAckRequiredTextEvent ||
-		awapMsg.Type == AwapMessageTypeMessageReceiveEvent ||
-		awapMsg.Type == AwapMessageTypeDownstreamTextEvent ||
-		awapMsg.Type == AwapMessageTypeDownstreamBinaryEvent {
+	if hasCustomHandleAwapIncomingMessage(handler) {
 		incoming := &AwapIncomingMessage{
 			AwapMessage: *awapMsg,
 			RawPayload:  message.Payload,
@@ -105,41 +105,73 @@ func (h *AbstractAwapWebSocketHandler) HandleRawMessage(session *WebSocketSessio
 		// Don't return error from HandleAwapIncomingMessage, as HandleAwapMessage already processed it
 		if err := handler.HandleAwapIncomingMessage(session, incoming); err != nil {
 			fmt.Printf("[AWAP] HandleAwapIncomingMessage error: %v\n", err)
-			// Continue anyway, as the message was already handled by HandleAwapMessage
 		}
+	} else {
+		fmt.Printf("[AWAP] HandleAwapIncomingMessage not implemented, skipping\n")
 	}
 
 	return nil
 }
 
-// HandleAwapMessage handles AWAP protocol messages (default implementation)
 func (h *AbstractAwapWebSocketHandler) HandleAwapMessage(session *WebSocketSessionInfo, message *AwapMessage) error {
 	// Default implementation - can be overridden
 	return nil
 }
 
-// HandleAwapIncomingMessage handles incoming AWAP messages (default implementation)
 func (h *AbstractAwapWebSocketHandler) HandleAwapIncomingMessage(session *WebSocketSessionInfo, message *AwapIncomingMessage) error {
 	// Default implementation - can be overridden
 	return nil
 }
 
-// HandleError handles errors
+func hasCustomHandleAwapIncomingMessage(handler AwapWebSocketHandler) bool {
+	handlerType := reflect.TypeOf(handler)
+	if handlerType == nil {
+		return false
+	}
+
+	if handlerType.Kind() == reflect.Ptr {
+		handlerType = handlerType.Elem()
+	}
+
+	// If the handler is AbstractAwapWebSocketHandler, it's using default implementation
+	if handlerType == reflect.TypeOf((*AbstractAwapWebSocketHandler)(nil)).Elem() {
+		return false
+	}
+
+	// Check if the method is from AbstractAwapWebSocketHandler by comparing function addresses
+	// Create an instance to get the method value
+	defaultHandler := &AbstractAwapWebSocketHandler{}
+	defaultMethodValue := reflect.ValueOf(defaultHandler).MethodByName("HandleAwapIncomingMessage")
+
+	handlerValue := reflect.ValueOf(handler)
+	if handlerValue.Kind() == reflect.Ptr && handlerValue.IsNil() {
+		return false
+	}
+	handlerMethodValue := handlerValue.MethodByName("HandleAwapIncomingMessage")
+
+	if !handlerMethodValue.IsValid() {
+		return false
+	}
+
+	if handlerMethodValue.Pointer() == defaultMethodValue.Pointer() {
+		return false
+	}
+
+	return true
+}
+
 func (h *AbstractAwapWebSocketHandler) HandleError(session *WebSocketSessionInfo, err error) error {
 	return nil
 }
 
-// AfterConnectionClosed is called after connection is closed
 func (h *AbstractAwapWebSocketHandler) AfterConnectionClosed(session *WebSocketSessionInfo, code int, reason string) error {
 	return nil
 }
 
-// SupportsPartialMessages returns whether partial messages are supported
 func (h *AbstractAwapWebSocketHandler) SupportsPartialMessages() bool {
 	return h.supportsPartial
 }
 
-// SetSupportsPartialMessages sets whether to support partial messages
 func (h *AbstractAwapWebSocketHandler) SetSupportsPartialMessages(supports bool) {
 	h.supportsPartial = supports
 }
@@ -217,7 +249,7 @@ func ParseAwapMessage(message *WebSocketMessage) (*AwapMessage, error) {
 			}
 		}
 	} else {
-		// Pure JSON format (backward compatibility)
+		// Pure JSON format
 		if err := json.Unmarshal(data, &awapMsg); err != nil {
 			return nil, fmt.Errorf("failed to parse AWAP message: %w", err)
 		}

@@ -488,3 +488,61 @@ func createTestWebSocketServer(t *testing.T) *httptest.Server {
 	server := httptest.NewServer(handler)
 	return server
 }
+
+func TestWebSocketReconnectWhenAlreadyConnected(t *testing.T) {
+	server := createTestWebSocketServer(t)
+	defer server.Close()
+
+	handler := &MockWebSocketHandler{}
+
+	request := &Request{
+		Protocol: String("ws"),
+		Pathname: String("/"),
+		Headers: map[string]*string{
+			"host": String(server.Listener.Addr().String()),
+		},
+	}
+
+	runtimeObject := &RuntimeObject{
+		WebSocketEnableReconnect:   Bool(true),
+		WebSocketMaxReconnectTimes: Int(3),
+		WebSocketReconnectInterval: Int(1000),
+		WebSocketHandshakeTimeout:  Int(5000),
+		WebSocketPingInterval:      Int(0), // Disable ping for this test
+		WebSocketHandler:           handler,
+	}
+
+	// Connect to the server
+	ctx := context.Background()
+	client, _, err := NewDefaultWebSocketClientAndConnect(request, runtimeObject)
+	if err != nil {
+		t.Fatalf("Initial connection failed: %v", err)
+	}
+
+	// Verify client is connected
+	if !client.IsConnected() {
+		t.Fatal("Client should be connected")
+	}
+
+	// Try to reconnect while already connected
+	result, err := client.Reconnect(ctx)
+	if err != nil {
+		t.Fatalf("Reconnect should not return error: %v", err)
+	}
+
+	// Verify that reconnection was skipped
+	if alreadyConnected, ok := result["already_connected"].(bool); !ok || !alreadyConnected {
+		t.Error("Expected reconnect to be skipped with already_connected=true")
+	}
+
+	// Verify client is still connected
+	if !client.IsConnected() {
+		t.Error("Client should still be connected after skipped reconnect")
+	}
+
+	// Cleanup
+	client.Close()
+
+	// Wait a bit for cleanup
+	time.Sleep(100 * time.Millisecond)
+}
