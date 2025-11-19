@@ -43,11 +43,28 @@ type WebSocketCloseFrame struct {
 
 type WebSocketSessionInfo struct {
 	SessionID   string // Session ID from server (x-acs-ws-session-id header)
-	RequestID   string // Request ID from server (x-acs-request-id header)
 	ConnectedAt time.Time
 	RemoteAddr  string
 	LocalAddr   string
 	Attributes  map[string]interface{}
+}
+
+// NewWebSocketResponse creates a Response from WebSocket handshake HTTP response
+// Session information should be retrieved from WebSocketClient.GetSession()
+func NewWebSocketResponse(httpResponse *http.Response) *Response {
+	res := &Response{}
+	res.Headers = make(map[string]*string)
+	res.StatusCode = Int(httpResponse.StatusCode)
+	res.StatusMessage = String(httpResponse.Status)
+	res.Body = httpResponse.Body
+
+	for key, values := range httpResponse.Header {
+		if len(values) > 0 {
+			res.Headers[strings.ToLower(key)] = String(values[0])
+		}
+	}
+
+	return res
 }
 
 type WebSocketHandler interface {
@@ -59,10 +76,10 @@ type WebSocketHandler interface {
 }
 
 type WebSocketClient interface {
-	Connect(ctx context.Context, request *Request, runtimeObject *RuntimeObject) (map[string]interface{}, error)
+	Connect(ctx context.Context, request *Request, runtimeObject *RuntimeObject) (*Response, error)
 	Disconnect(ctx context.Context) error
-	Reconnect(ctx context.Context) (map[string]interface{}, error)
-	ReconnectGracefully(ctx context.Context) (map[string]interface{}, error) // Graceful reconnection with session ID
+	Reconnect(ctx context.Context) (*Response, error)
+	ReconnectGracefully(ctx context.Context) (*Response, error) // Graceful reconnection with session ID
 	IsConnected() bool
 	SendText(ctx context.Context, text string) error
 	SendBinary(ctx context.Context, data []byte) error
@@ -92,9 +109,13 @@ type DefaultWebSocketClient struct {
 	pingInterval      time.Duration // Ping 间隔
 	reconnectInterval time.Duration // 重连间隔
 	writeTimeout      time.Duration // 写入超时
-	readTimeout       time.Duration // 读取超时
+	readTimeout       time.Duration // 读取超timeout
 	pongTimeout       time.Duration // Pong 超时
 	maxReconnectTimes int           // 最大重连次数
+
+	// AWAP request-response pattern (pending requests waiting for ACK)
+	pendingRequests   map[string]chan *AwapMessage // messageID -> response channel
+	pendingRequestsMu sync.RWMutex                 // 保护 pendingRequests map
 
 	// 零值可用的字段（sync 类型）
 	reconnectMu sync.Mutex
@@ -108,16 +129,17 @@ func NewDefaultWebSocketClient(handler WebSocketHandler) (*DefaultWebSocketClien
 	}
 
 	client := &DefaultWebSocketClient{
-		handler:      handler,
-		stopChan:     make(chan struct{}),
-		pongReceived: make(chan struct{}, 1),
-		state:        0, // disconnected
+		handler:         handler,
+		stopChan:        make(chan struct{}),
+		pongReceived:    make(chan struct{}, 1),
+		state:           0, // disconnected
+		pendingRequests: make(map[string]chan *AwapMessage),
 	}
 
 	return client, nil
 }
 
-func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject) (*DefaultWebSocketClient, map[string]interface{}, error) {
+func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject) (*DefaultWebSocketClient, *Response, error) {
 	if runtimeObject == nil {
 		return nil, nil, errors.New("runtimeObject cannot be nil")
 	}
@@ -140,12 +162,12 @@ func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject
 		return nil, nil, err
 	}
 
-	result, err := client.Connect(ctx, request, runtimeObject)
+	response, err := client.Connect(ctx, request, runtimeObject)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return client, result, nil
+	return client, response, nil
 }
 
 func buildWebSocketURL(request *Request) (string, error) {
@@ -233,9 +255,9 @@ func (c *DefaultWebSocketClient) updateTimeoutConfig(runtimeObject *RuntimeObjec
 	}
 }
 
-func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, runtimeObject *RuntimeObject) (map[string]interface{}, error) {
+func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, runtimeObject *RuntimeObject) (*Response, error) {
 	if request == nil {
-		return map[string]interface{}{"success": false, "error": "request cannot be nil"}, errors.New("request cannot be nil")
+		return nil, errors.New("request cannot be nil")
 	}
 	if runtimeObject == nil {
 		runtimeObject = &RuntimeObject{}
@@ -260,13 +282,13 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 	requestURL, err := buildWebSocketURL(request)
 	if err != nil {
 		atomic.StoreInt32(&c.state, 0) // disconnected
-		return map[string]interface{}{"success": false, "error": err.Error()}, err
+		return nil, err
 	}
 
 	u, err := url.Parse(requestURL)
 	if err != nil {
 		atomic.StoreInt32(&c.state, 0) // disconnected
-		return map[string]interface{}{"success": false, "error": err.Error()}, err
+		return nil, err
 	}
 
 	handshakeTimeout := time.Duration(IntValue(runtimeObject.WebSocketHandshakeTimeout)) * time.Millisecond
@@ -285,127 +307,18 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 	}
 
 	if u.Scheme == "wss" || u.Scheme == "https" {
-		if BoolValue(runtimeObject.IgnoreSSL) != true {
-			dialer.TLSClientConfig = &tls.Config{
-				InsecureSkipVerify: false,
-			}
-			// Client certificate and key
-			if runtimeObject.Key != nil && runtimeObject.Cert != nil && StringValue(runtimeObject.Key) != "" && StringValue(runtimeObject.Cert) != "" {
-				cert, err := tls.X509KeyPair([]byte(StringValue(runtimeObject.Cert)), []byte(StringValue(runtimeObject.Key)))
-				if err != nil {
-					atomic.StoreInt32(&c.state, 0) // disconnected
-					return map[string]interface{}{"success": false, "error": fmt.Sprintf("failed to load client certificate: %v", err)}, err
-				}
-				dialer.TLSClientConfig.Certificates = []tls.Certificate{cert}
-			}
-			if runtimeObject.Ca != nil && StringValue(runtimeObject.Ca) != "" {
-				clientCertPool := x509.NewCertPool()
-				ok := clientCertPool.AppendCertsFromPEM([]byte(StringValue(runtimeObject.Ca)))
-				if !ok {
-					atomic.StoreInt32(&c.state, 0) // disconnected
-					return map[string]interface{}{"success": false, "error": "failed to parse root certificate"}, errors.New("failed to parse root certificate")
-				}
-				dialer.TLSClientConfig.RootCAs = clientCertPool
-			}
-		} else {
-			dialer.TLSClientConfig = &tls.Config{
-				InsecureSkipVerify: true,
-			}
+		tlsConfig, err := c.configureTLS(runtimeObject)
+		if err != nil {
+			atomic.StoreInt32(&c.state, 0) // disconnected
+			return nil, err
 		}
+		dialer.TLSClientConfig = tlsConfig
 	}
 
-	// Priority: SOCKS5 > HTTP/HTTPS proxy
-	if runtimeObject.Socks5Proxy != nil && StringValue(runtimeObject.Socks5Proxy) != "" {
-		socks5Proxy, err := url.Parse(StringValue(runtimeObject.Socks5Proxy))
-		if err == nil {
-			var auth *proxy.Auth
-			if socks5Proxy.User != nil {
-				password, _ := socks5Proxy.User.Password()
-				auth = &proxy.Auth{
-					User:     socks5Proxy.User.Username(),
-					Password: password,
-				}
-			}
-			socks5Network := strings.ToLower(StringValue(runtimeObject.Socks5NetWork))
-			if socks5Network == "" {
-				socks5Network = "tcp"
-			}
-			socks5Dialer, err := proxy.SOCKS5(socks5Network, socks5Proxy.Host, auth,
-				&net.Dialer{
-					Timeout:   connectTimeout,
-					DualStack: true,
-					LocalAddr: getLocalAddr(StringValue(runtimeObject.LocalAddr)),
-				})
-			if err != nil {
-				atomic.StoreInt32(&c.state, 0) // disconnected
-				return map[string]interface{}{"success": false, "error": fmt.Sprintf("failed to setup SOCKS5 proxy: %v", err)}, err
-			}
-			dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return socks5Dialer.Dial(network, addr)
-			}
-		}
-	} else {
-		var httpProxy *url.URL
-		var err error
-		protocol := u.Scheme
-		host := u.Hostname()
-
-		noProxyList := getNoProxy(protocol, runtimeObject)
-		shouldUseProxy := true
-		for _, noProxyHost := range noProxyList {
-			if noProxyHost == host {
-				shouldUseProxy = false
-				break
-			}
-		}
-
-		if shouldUseProxy {
-			var proxyURL *string
-			if protocol == "wss" || protocol == "https" {
-				proxyURL = runtimeObject.HttpsProxy
-			} else {
-				proxyURL = runtimeObject.HttpProxy
-			}
-			if proxyURL != nil && StringValue(proxyURL) != "" {
-				httpProxy, err = getHttpProxy(protocol, host, runtimeObject)
-			}
-		}
-
-		if httpProxy != nil && err == nil {
-			dialer.Proxy = http.ProxyURL(httpProxy)
-			// Add Proxy-Authorization header if needed
-			if httpProxy.User != nil {
-				password, _ := httpProxy.User.Password()
-				auth := httpProxy.User.Username() + ":" + password
-				basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
-				if request.Headers == nil {
-					request.Headers = make(map[string]*string)
-				}
-				request.Headers["Proxy-Authorization"] = String(basic)
-			}
-		}
-
-		if runtimeObject.LocalAddr != nil && StringValue(runtimeObject.LocalAddr) != "" {
-			localAddr := getLocalAddr(StringValue(runtimeObject.LocalAddr))
-			if localAddr != nil {
-				dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-					d := &net.Dialer{
-						Timeout:   connectTimeout,
-						DualStack: true,
-						LocalAddr: localAddr,
-					}
-					return d.DialContext(ctx, network, addr)
-				}
-			}
-		} else {
-			dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-				d := &net.Dialer{
-					Timeout:   connectTimeout,
-					DualStack: true,
-				}
-				return d.DialContext(ctx, network, addr)
-			}
-		}
+	// Configure proxy and network dialer (Priority: SOCKS5 > HTTP/HTTPS proxy)
+	if err := c.configureProxy(&dialer, u, runtimeObject, request, connectTimeout); err != nil {
+		atomic.StoreInt32(&c.state, 0) // disconnected
+		return nil, err
 	}
 
 	header := http.Header{}
@@ -435,7 +348,7 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 				fmt.Printf("  %s: %v\n", k, v)
 			}
 		}
-		return map[string]interface{}{"success": false, "error": err.Error()}, err
+		return nil, err
 	}
 
 	c.conn = conn
@@ -445,10 +358,8 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 
 	// HTTP headers are case-insensitive, Go's Header.Get() is case-insensitive
 	sessionID := ""
-	requestID := ""
 	if resp != nil && resp.Header != nil {
 		sessionID = resp.Header.Get("x-acs-ws-session-id")
-		requestID = resp.Header.Get("x-acs-request-id")
 	}
 
 	if sessionID == "" {
@@ -457,7 +368,6 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 
 	c.session = &WebSocketSessionInfo{
 		SessionID:   sessionID,
-		RequestID:   requestID,
 		ConnectedAt: time.Now(),
 		RemoteAddr:  conn.RemoteAddr().String(),
 		LocalAddr:   conn.LocalAddr().String(),
@@ -472,19 +382,11 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 	}
 
 	if err := c.handler.AfterConnectionEstablished(c.session); err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}, err
+		return nil, err
 	}
 
-	result := map[string]interface{}{
-		"success":   true,
-		"status":    resp.StatusCode,
-		"header":    resp.Header,
-		"session":   c.session,
-		"sessionId": c.session.SessionID,
-		"requestId": c.session.RequestID,
-	}
-
-	return result, nil
+	response := NewWebSocketResponse(resp)
+	return response, nil
 }
 
 func (c *DefaultWebSocketClient) Disconnect(ctx context.Context) error {
@@ -553,25 +455,25 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 	return nil
 }
 
-func (c *DefaultWebSocketClient) Reconnect(ctx context.Context) (map[string]interface{}, error) {
+func (c *DefaultWebSocketClient) Reconnect(ctx context.Context) (*Response, error) {
 	return c.reconnectInternal(ctx, false)
 }
 
 // ReconnectGracefully performs a graceful reconnection (server-initiated via RECONNECT control message, with session ID)
-func (c *DefaultWebSocketClient) ReconnectGracefully(ctx context.Context) (map[string]interface{}, error) {
+func (c *DefaultWebSocketClient) ReconnectGracefully(ctx context.Context) (*Response, error) {
 	return c.reconnectInternal(ctx, true)
 }
 
 // reconnectInternal is the internal implementation for both normal and graceful reconnection
 // graceful: true for graceful reconnection (uses session ID), false for normal reconnection (doesn't use session ID)
-func (c *DefaultWebSocketClient) reconnectInternal(ctx context.Context, graceful bool) (map[string]interface{}, error) {
+func (c *DefaultWebSocketClient) reconnectInternal(ctx context.Context, graceful bool) (*Response, error) {
 	c.reconnectMu.Lock()
 	defer c.reconnectMu.Unlock()
 
 	// Check if already connected (avoid unnecessary reconnection)
 	if c.IsConnected() {
 		fmt.Printf("[WebSocket] Already connected, skipping reconnect\n")
-		return map[string]interface{}{"success": true, "already_connected": true}, nil
+		return nil, errors.New("already connected")
 	}
 
 	// Check if context is already cancelled (client might be closing)
@@ -732,6 +634,272 @@ func (c *DefaultWebSocketClient) Close() error {
 	return c.disconnect(1000, "Client closed")
 }
 
+// SendAwapRequestWithResponse sends an AWAP request message and waits for response
+// Used for AckRequiredTextEvent that requires acknowledgment from server
+//
+// The message ID must be unique and will be used to match the response.
+// Returns the response message or error if timeout/failure occurs.
+func (c *DefaultWebSocketClient) SendAwapRequestWithResponse(ctx context.Context, msg *AwapMessage, timeout time.Duration) (*AwapMessage, error) {
+	if msg == nil {
+		return nil, errors.New("message cannot be nil")
+	}
+
+	if msg.ID == "" {
+		return nil, errors.New("message ID cannot be empty for request-response pattern")
+	}
+
+	// 创建响应 channel
+	responseChan := make(chan *AwapMessage, 1)
+
+	// 注册待处理请求
+	c.pendingRequestsMu.Lock()
+	c.pendingRequests[msg.ID] = responseChan
+	c.pendingRequestsMu.Unlock()
+
+	// 确保清理
+	defer func() {
+		c.pendingRequestsMu.Lock()
+		delete(c.pendingRequests, msg.ID)
+		c.pendingRequestsMu.Unlock()
+		close(responseChan)
+	}()
+
+	// 构造 AWAP 消息文本（复用公共方法）
+	messageText, err := BuildAwapMessageText(msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build AWAP message: %w", err)
+	}
+
+	// 发送消息
+	err = c.SendText(ctx, messageText)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send message: %w", err)
+	}
+
+	fmt.Printf("[AWAP Request] Sent request with ID: %s, waiting for response...\n", msg.ID)
+
+	// 等待响应（带超时）
+	if timeout <= 0 {
+		timeout = 30 * time.Second // 默认超时
+	}
+
+	select {
+	case response := <-responseChan:
+		fmt.Printf("[AWAP Request] Received response for ID: %s\n", msg.ID)
+		return response, nil
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("request timeout after %v waiting for response to message ID: %s", timeout, msg.ID)
+	case <-ctx.Done():
+		return nil, fmt.Errorf("request cancelled: %w", ctx.Err())
+	case <-c.stopChan:
+		return nil, errors.New("client is closing")
+	}
+}
+
+func (c *DefaultWebSocketClient) completeAwapRequest(messageID string, response *AwapMessage) bool {
+	c.pendingRequestsMu.RLock()
+	responseChan, exists := c.pendingRequests[messageID]
+	c.pendingRequestsMu.RUnlock()
+
+	if !exists || responseChan == nil {
+		return false
+	}
+
+	// 尝试发送响应到等待的 channel
+	select {
+	case responseChan <- response:
+		fmt.Printf("[AWAP Request] Completed request for ID: %s\n", messageID)
+		return true
+	default:
+		// Channel 已满或已关闭
+		fmt.Printf("[AWAP Request] Warning: Failed to send response to channel for ID: %s\n", messageID)
+		return false
+	}
+}
+
+func (c *DefaultWebSocketClient) configureTLS(runtimeObject *RuntimeObject) (*tls.Config, error) {
+	if BoolValue(runtimeObject.IgnoreSSL) {
+		return &tls.Config{
+			InsecureSkipVerify: true,
+		}, nil
+	}
+
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: false,
+	}
+
+	// Client certificate and key
+	if runtimeObject.Key != nil && runtimeObject.Cert != nil &&
+		StringValue(runtimeObject.Key) != "" && StringValue(runtimeObject.Cert) != "" {
+		cert, err := tls.X509KeyPair([]byte(StringValue(runtimeObject.Cert)), []byte(StringValue(runtimeObject.Key)))
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	// Root CA certificate
+	if runtimeObject.Ca != nil && StringValue(runtimeObject.Ca) != "" {
+		clientCertPool := x509.NewCertPool()
+		if !clientCertPool.AppendCertsFromPEM([]byte(StringValue(runtimeObject.Ca))) {
+			return nil, errors.New("failed to parse root certificate")
+		}
+		tlsConfig.RootCAs = clientCertPool
+	}
+
+	return tlsConfig, nil
+}
+
+// configureProxy configures proxy and network dialer for WebSocket connections
+// Priority: SOCKS5 > HTTP/HTTPS proxy > Direct connection
+func (c *DefaultWebSocketClient) configureProxy(
+	dialer *websocket.Dialer,
+	u *url.URL,
+	runtimeObject *RuntimeObject,
+	request *Request,
+	connectTimeout time.Duration,
+) error {
+	// Priority 1: SOCKS5 proxy (works at TCP layer, uses NetDialContext)
+	if runtimeObject.Socks5Proxy != nil && StringValue(runtimeObject.Socks5Proxy) != "" {
+		return c.configureSOCKS5Proxy(dialer, runtimeObject, connectTimeout)
+	}
+
+	// Priority 2: HTTP/HTTPS proxy (works at HTTP layer, uses Proxy function)
+	if err := c.configureHTTPProxy(dialer, u, runtimeObject, request); err != nil {
+		return err
+	}
+
+	// Priority 3: Direct connection with optional local address
+	c.configureNetDialer(dialer, runtimeObject, connectTimeout)
+	return nil
+}
+
+// configureSOCKS5Proxy configures SOCKS5 proxy via NetDialContext
+func (c *DefaultWebSocketClient) configureSOCKS5Proxy(
+	dialer *websocket.Dialer,
+	runtimeObject *RuntimeObject,
+	connectTimeout time.Duration,
+) error {
+	socks5Proxy, err := url.Parse(StringValue(runtimeObject.Socks5Proxy))
+	if err != nil {
+		return fmt.Errorf("failed to parse SOCKS5 proxy URL: %w", err)
+	}
+
+	var auth *proxy.Auth
+	if socks5Proxy.User != nil {
+		password, _ := socks5Proxy.User.Password()
+		auth = &proxy.Auth{
+			User:     socks5Proxy.User.Username(),
+			Password: password,
+		}
+	}
+
+	socks5Network := strings.ToLower(StringValue(runtimeObject.Socks5NetWork))
+	if socks5Network == "" {
+		socks5Network = "tcp"
+	}
+
+	socks5Dialer, err := proxy.SOCKS5(
+		socks5Network,
+		socks5Proxy.Host,
+		auth,
+		&net.Dialer{
+			Timeout:   connectTimeout,
+			DualStack: true,
+			LocalAddr: getLocalAddr(StringValue(runtimeObject.LocalAddr)),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to setup SOCKS5 proxy: %w", err)
+	}
+
+	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return socks5Dialer.Dial(network, addr)
+	}
+
+	return nil
+}
+
+// configureHTTPProxy configures HTTP/HTTPS proxy via Proxy function
+func (c *DefaultWebSocketClient) configureHTTPProxy(
+	dialer *websocket.Dialer,
+	u *url.URL,
+	runtimeObject *RuntimeObject,
+	request *Request,
+) error {
+	protocol := u.Scheme
+	host := u.Hostname()
+
+	// Check if host is in no-proxy list
+	noProxyList := getNoProxy(protocol, runtimeObject)
+	for _, noProxyHost := range noProxyList {
+		if noProxyHost == host {
+			return nil // Skip proxy for this host
+		}
+	}
+
+	// Determine proxy URL based on protocol
+	var proxyURL *string
+	if protocol == "wss" || protocol == "https" {
+		proxyURL = runtimeObject.HttpsProxy
+	} else {
+		proxyURL = runtimeObject.HttpProxy
+	}
+
+	if proxyURL == nil || StringValue(proxyURL) == "" {
+		return nil // No proxy configured
+	}
+
+	httpProxy, err := getHttpProxy(protocol, host, runtimeObject)
+	if err != nil {
+		return fmt.Errorf("failed to get HTTP proxy: %w", err)
+	}
+
+	if httpProxy == nil {
+		return nil // No proxy needed
+	}
+
+	// Set proxy function (gorilla/websocket will handle the connection)
+	dialer.Proxy = http.ProxyURL(httpProxy)
+
+	// Add Proxy-Authorization header if proxy requires authentication
+	if httpProxy.User != nil {
+		password, _ := httpProxy.User.Password()
+		auth := httpProxy.User.Username() + ":" + password
+		basic := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+		if request.Headers == nil {
+			request.Headers = make(map[string]*string)
+		}
+		request.Headers["Proxy-Authorization"] = String(basic)
+	}
+
+	return nil
+}
+
+// configureNetDialer configures network dialer for direct connections
+func (c *DefaultWebSocketClient) configureNetDialer(
+	dialer *websocket.Dialer,
+	runtimeObject *RuntimeObject,
+	connectTimeout time.Duration,
+) {
+	// Only configure if NetDialContext is not already set (e.g., by SOCKS5)
+	if dialer.NetDialContext != nil {
+		return
+	}
+
+	localAddr := getLocalAddr(StringValue(runtimeObject.LocalAddr))
+	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		d := &net.Dialer{
+			Timeout:   connectTimeout,
+			DualStack: true,
+		}
+		if localAddr != nil {
+			d.LocalAddr = localAddr
+		}
+		return d.DialContext(ctx, network, addr)
+	}
+}
+
 func (c *DefaultWebSocketClient) startMessageHandlers() {
 	// Read messages from WebSocket
 	c.wg.Add(1)
@@ -811,39 +979,176 @@ func (c *DefaultWebSocketClient) readMessages() {
 
 		fmt.Printf("[WebSocket] Received message: type=%d, size=%d bytes\n", messageType, len(data))
 
-		if c.session != nil {
-			// Check for RECONNECT control message for AWAP protocol
-			// This allows graceful reconnection triggered by server
-			if messageType == websocket.TextMessage {
-				if awapMsg, err := ParseAwapMessage(msg); err == nil {
-					if awapMsg.Type == AwapMessageTypeReconnect {
-						fmt.Printf("[WebSocket] Received RECONNECT control message, initiating graceful reconnection\n")
-						// Trigger graceful reconnection in a goroutine to avoid blocking message reading
-						go func() {
-							c.closeMu.Lock()
-							reconnectCtx := c.ctx
-							c.closeMu.Unlock()
-							if reconnectCtx != nil {
-								if _, err := c.ReconnectGracefully(reconnectCtx); err != nil {
-									fmt.Printf("[WebSocket] Graceful reconnection failed: %v\n", err)
-									if c.session != nil {
-										c.handler.HandleError(c.session, err)
-									}
-								}
-							}
-						}()
-						return
-					}
+		if c.session == nil {
+			fmt.Printf("[WebSocket] Warning: session is nil, cannot handle message\n")
+			continue
+		}
+
+		if c.handleReconnectMessage(messageType, msg) {
+			return
+		}
+
+		handled := c.handleAwapMessage(messageType, msg)
+		if !handled {
+			handled = c.handleGeneralMessage(messageType, msg)
+		}
+
+		if !handled {
+			c.handleRawMessageFallback(msg)
+		}
+	}
+}
+
+// handleReconnectMessage checks for RECONNECT control message and triggers graceful reconnection
+// Returns true if RECONNECT message was handled (readMessages should return)
+func (c *DefaultWebSocketClient) handleReconnectMessage(messageType int, msg *WebSocketMessage) bool {
+	if messageType != websocket.TextMessage {
+		return false
+	}
+
+	awapMsg, err := ParseAwapMessage(msg)
+	if err != nil {
+		return false
+	}
+
+	if awapMsg.Type != AwapMessageTypeReconnect {
+		return false
+	}
+
+	fmt.Printf("[WebSocket] Received RECONNECT control message, initiating graceful reconnection\n")
+	// Trigger graceful reconnection in a goroutine to avoid blocking message reading
+	go func() {
+		c.closeMu.Lock()
+		reconnectCtx := c.ctx
+		c.closeMu.Unlock()
+		if reconnectCtx != nil {
+			if _, err := c.ReconnectGracefully(reconnectCtx); err != nil {
+				fmt.Printf("[WebSocket] Graceful reconnection failed: %v\n", err)
+				if c.session != nil {
+					c.handler.HandleError(c.session, err)
 				}
 			}
-
-			if err := c.handler.HandleRawMessage(c.session, msg); err != nil {
-				fmt.Printf("[WebSocket] HandleRawMessage error: %v\n", err)
-				c.handler.HandleError(c.session, err)
-			}
-		} else {
-			fmt.Printf("[WebSocket] Warning: session is nil, cannot handle message\n")
 		}
+	}()
+	return true
+}
+
+// Returns true if message was handled, false otherwise
+func (c *DefaultWebSocketClient) handleAwapMessage(messageType int, msg *WebSocketMessage) bool {
+	awapHandler, ok := c.handler.(AwapWebSocketHandler)
+	if !ok {
+		return false
+	}
+
+	if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
+		return false
+	}
+
+	awapMsg, err := ParseAwapMessage(msg)
+	if err != nil {
+		return false
+	}
+
+	fmt.Printf("[WebSocket] AWAP handler detected, calling protocol-specific methods\n")
+
+	// Check if this is a response to a pending request (MessageReceiveEvent with ack-id)
+	if awapMsg.Type == AwapMessageTypeMessageReceiveEvent {
+		var ackID string
+		if awapMsg.Headers != nil {
+			ackID = awapMsg.Headers["ack-id"]
+		}
+
+		if ackID != "" {
+			// Try to complete pending request
+			if c.completeAwapRequest(ackID, awapMsg) {
+				// Successfully matched and completed a pending request
+				// Skip normal handler processing for this message
+				fmt.Printf("[WebSocket] Response matched and completed for request ID: %s\n", ackID)
+				return true
+			}
+		}
+	}
+
+	if err := awapHandler.HandleAwapMessage(c.session, awapMsg); err != nil {
+		fmt.Printf("[WebSocket] HandleAwapMessage error: %v\n", err)
+		c.handler.HandleError(c.session, err)
+	}
+
+	if hasCustomHandleAwapIncomingMessage(awapHandler) {
+		incoming := &AwapIncomingMessage{
+			AwapMessage: *awapMsg,
+			RawPayload:  msg.Payload,
+		}
+		if err := awapHandler.HandleAwapIncomingMessage(c.session, incoming); err != nil {
+			fmt.Printf("[WebSocket] HandleAwapIncomingMessage error: %v\n", err)
+		}
+	}
+
+	return true
+}
+
+func (c *DefaultWebSocketClient) handleGeneralMessage(messageType int, msg *WebSocketMessage) bool {
+	generalHandler, ok := c.handler.(GeneralWebSocketHandler)
+	if !ok {
+		return false
+	}
+
+	if messageType == websocket.TextMessage {
+		genMsg, err := ParseGeneralMessage(msg)
+		if err != nil {
+			return false
+		}
+
+		fmt.Printf("[WebSocket] General handler detected, calling protocol-specific methods\n")
+
+		if err := generalHandler.HandleGeneralTextMessage(c.session, genMsg); err != nil {
+			fmt.Printf("[WebSocket] HandleGeneralTextMessage error: %v\n", err)
+			c.handler.HandleError(c.session, err)
+		}
+
+		if hasCustomHandleGeneralIncomingMessage(generalHandler) {
+			incoming := &GeneralIncomingMessage{
+				Headers:    genMsg.Headers,
+				Body:       genMsg.Body,
+				RawPayload: msg.Payload,
+				IsBinary:   false,
+			}
+			if err := generalHandler.HandleGeneralIncomingMessage(c.session, incoming); err != nil {
+				fmt.Printf("[WebSocket] HandleGeneralIncomingMessage error: %v\n", err)
+			}
+		}
+
+		return true
+	} else if messageType == websocket.BinaryMessage {
+		fmt.Printf("[WebSocket] General handler detected, calling binary message handler\n")
+
+		if err := generalHandler.HandleGeneralBinaryMessage(c.session, msg.Payload); err != nil {
+			fmt.Printf("[WebSocket] HandleGeneralBinaryMessage error: %v\n", err)
+			c.handler.HandleError(c.session, err)
+		}
+
+		if hasCustomHandleGeneralIncomingMessage(generalHandler) {
+			incoming := &GeneralIncomingMessage{
+				Headers:    make(map[string]string),
+				Body:       nil,
+				RawPayload: msg.Payload,
+				IsBinary:   true,
+			}
+			if err := generalHandler.HandleGeneralIncomingMessage(c.session, incoming); err != nil {
+				fmt.Printf("[WebSocket] HandleGeneralIncomingMessage error: %v\n", err)
+			}
+		}
+
+		return true
+	}
+
+	return false
+}
+
+func (c *DefaultWebSocketClient) handleRawMessageFallback(msg *WebSocketMessage) {
+	if err := c.handler.HandleRawMessage(c.session, msg); err != nil {
+		fmt.Printf("[WebSocket] HandleRawMessage error: %v\n", err)
+		c.handler.HandleError(c.session, err)
 	}
 }
 

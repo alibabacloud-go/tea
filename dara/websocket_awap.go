@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type AwapMessageType string
@@ -66,50 +67,14 @@ func (h *AbstractAwapWebSocketHandler) AfterConnectionEstablished(session *WebSo
 }
 
 func (h *AbstractAwapWebSocketHandler) HandleRawMessage(session *WebSocketSessionInfo, message *WebSocketMessage) error {
-	awapMsg, err := ParseAwapMessage(message)
-	if err != nil {
-		fmt.Printf("[AWAP] Failed to parse message: %v\n", err)
-		return err
-	}
-
-	fmt.Printf("[tea AWAP] Received message: type=%s, id=%s, seq=%d\n", awapMsg.Type, awapMsg.ID, awapMsg.Seq)
-
-	handler, ok := interface{}(h).(AwapWebSocketHandler)
-	if !ok {
-		fmt.Printf("[AWAP] ERROR: handler does not implement AwapWebSocketHandler interface, type=%T\n", h)
-		return fmt.Errorf("handler does not implement AwapWebSocketHandler")
-	}
-
-	fmt.Printf("[AWAP] Handler type: %T, interface handler type: %T\n", h, handler)
-	fmt.Printf("[AWAP] Calling HandleAwapMessage for type=%s\n", awapMsg.Type)
-
-	// before calling HandleRawMessage, so it won't reach here. This check is kept for completeness.
-	if awapMsg.Type == AwapMessageTypeReconnect {
-		fmt.Printf("[AWAP] RECONNECT control message detected (should have been handled earlier)\n")
-	}
-
-	// Note: This will call the default implementation if handler is *AbstractAwapWebSocketHandler
-	if err := handler.HandleAwapMessage(session, awapMsg); err != nil {
-		fmt.Printf("[AWAP] HandleAwapMessage error: %v\n", err)
-		return err
-	}
-
-	fmt.Printf("[AWAP] HandleAwapMessage completed successfully\n")
-
-	if hasCustomHandleAwapIncomingMessage(handler) {
-		incoming := &AwapIncomingMessage{
-			AwapMessage: *awapMsg,
-			RawPayload:  message.Payload,
-		}
-		fmt.Printf("[AWAP] Calling HandleAwapIncomingMessage for type=%s\n", awapMsg.Type)
-		// Don't return error from HandleAwapIncomingMessage, as HandleAwapMessage already processed it
-		if err := handler.HandleAwapIncomingMessage(session, incoming); err != nil {
-			fmt.Printf("[AWAP] HandleAwapIncomingMessage error: %v\n", err)
-		}
-	} else {
-		fmt.Printf("[AWAP] HandleAwapIncomingMessage not implemented, skipping\n")
-	}
-
+	// This method is only called if:
+	// 1. DefaultWebSocketClient.readMessages() doesn't recognize the handler as AwapWebSocketHandler, OR
+	// 2. User explicitly overrides this method for custom handling
+	//
+	// In normal AWAP protocol usage, readMessages() will directly call HandleAwapMessage,
+	// so this default implementation won't be called.
+	//
+	// If you need custom protocol handling, override this method in your handler.
 	return nil
 }
 
@@ -273,4 +238,42 @@ func (m *AwapMessage) WithHeader(key, value string) *AwapMessage {
 func (m *AwapMessage) WithFormat(format AwapMessageFormat) *AwapMessage {
 	m.Format = format
 	return m
+}
+
+func BuildAwapMessageText(message *AwapMessage) (string, error) {
+	if message == nil {
+		return "", fmt.Errorf("message cannot be nil")
+	}
+
+	var headerBuilder strings.Builder
+
+	headerBuilder.WriteString(fmt.Sprintf("type:%s\n", string(message.Type)))
+	headerBuilder.WriteString(fmt.Sprintf("seq:%d\n", message.Seq))
+	headerBuilder.WriteString(fmt.Sprintf("timestamp:%d\n", time.Now().UnixMilli()))
+
+	if message.ID != "" {
+		headerBuilder.WriteString(fmt.Sprintf("id:%s\n", message.ID))
+	}
+
+	// Auto-add ack:required for AckRequiredTextEvent
+	if message.Type == AwapMessageTypeAckRequiredTextEvent {
+		headerBuilder.WriteString("ack:required\n")
+	}
+
+	// Add empty line to separate headers and payload
+	headerBuilder.WriteString("\n")
+
+	// Serialize payload to JSON
+	var payloadJSON []byte
+	var err error
+	if message.Payload != nil {
+		payloadJSON, err = json.Marshal(message.Payload)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal AWAP payload: %w", err)
+		}
+	} else {
+		payloadJSON = []byte("{}")
+	}
+
+	return headerBuilder.String() + string(payloadJSON), nil
 }

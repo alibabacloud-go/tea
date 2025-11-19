@@ -49,75 +49,14 @@ func (h *AbstractGeneralWebSocketHandler) AfterConnectionEstablished(session *We
 }
 
 func (h *AbstractGeneralWebSocketHandler) HandleRawMessage(session *WebSocketSessionInfo, message *WebSocketMessage) error {
-	fmt.Printf("[General] HandleRawMessage called: type=%d, payloadLen=%d, payload=%s\n",
-		message.Type, len(message.Payload), string(message.Payload))
-
-	// In Go, when a struct embeds AbstractGeneralWebSocketHandler and overrides methods,
-	// calling h.HandleGeneralTextMessage will correctly call the overridden method.
-	// However, we need to ensure we're calling through the interface to get proper dispatch.
-	// Convert to interface to ensure we call the correct implementation
-	handler := interface{}(h).(GeneralWebSocketHandler)
-
-	if message.Type == WebSocketMessageTypeText {
-		generalMsg, err := ParseGeneralMessage(message)
-		if err != nil {
-			fmt.Printf("[General] Failed to parse General message: %v\n", err)
-			return err
-		}
-
-		incoming := &GeneralIncomingMessage{
-			Headers:    generalMsg.Headers,
-			Body:       generalMsg.Body,
-			RawPayload: message.Payload,
-			IsBinary:   false,
-		}
-
-		fmt.Printf("[General] Calling HandleGeneralTextMessage\n")
-		if err := handler.HandleGeneralTextMessage(session, generalMsg); err != nil {
-			fmt.Printf("[General] HandleGeneralTextMessage error: %v\n", err)
-			return err
-		}
-
-		if hasCustomHandleGeneralIncomingMessage(handler) {
-			fmt.Printf("[General] Calling HandleGeneralIncomingMessage\n")
-			if err := handler.HandleGeneralIncomingMessage(session, incoming); err != nil {
-				fmt.Printf("[General] HandleGeneralIncomingMessage error: %v\n", err)
-				// Continue anyway, as the message was already handled by HandleGeneralTextMessage
-			}
-		} else {
-			fmt.Printf("[General] HandleGeneralIncomingMessage not implemented, skipping\n")
-		}
-
-		return nil
-
-	} else if message.Type == WebSocketMessageTypeBinary {
-		incoming := &GeneralIncomingMessage{
-			Headers:    make(map[string]string),
-			Body:       nil,
-			RawPayload: message.Payload,
-			IsBinary:   true,
-		}
-
-		fmt.Printf("[General] Calling HandleGeneralBinaryMessage\n")
-		if err := handler.HandleGeneralBinaryMessage(session, message.Payload); err != nil {
-			fmt.Printf("[General] HandleGeneralBinaryMessage error: %v\n", err)
-			return err
-		}
-
-		if hasCustomHandleGeneralIncomingMessage(handler) {
-			fmt.Printf("[General] Calling HandleGeneralIncomingMessage\n")
-			if err := handler.HandleGeneralIncomingMessage(session, incoming); err != nil {
-				fmt.Printf("[General] HandleGeneralIncomingMessage error: %v\n", err)
-				// Continue anyway, as the message was already handled by HandleGeneralBinaryMessage
-			}
-		} else {
-			fmt.Printf("[General] HandleGeneralIncomingMessage not implemented, skipping\n")
-		}
-
-		return nil
-	}
-
-	fmt.Printf("[General] Unknown message type: %d\n", message.Type)
+	// This method is only called if:
+	// 1. DefaultWebSocketClient.readMessages() doesn't recognize the handler as GeneralWebSocketHandler, OR
+	// 2. User explicitly overrides this method for custom handling
+	//
+	// In normal General protocol usage, readMessages() will directly call HandleGeneralTextMessage/HandleGeneralBinaryMessage,
+	// so this default implementation won't be called.
+	//
+	// If you need custom protocol handling, override this method in your handler.
 	return nil
 }
 
