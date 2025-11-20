@@ -43,6 +43,7 @@ type WebSocketCloseFrame struct {
 
 type WebSocketSessionInfo struct {
 	SessionID   string // Session ID from server (x-acs-ws-session-id header)
+	RequestID   string // Request ID from server (x-acs-request-id header)
 	ConnectedAt time.Time
 	RemoteAddr  string
 	LocalAddr   string
@@ -330,9 +331,9 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 		}
 	}
 
-	fmt.Printf("[WebSocket] Handshake headers:\n")
+	debugLog("[WebSocket] Handshake headers:")
 	for k, v := range header {
-		fmt.Printf("  %s: %v\n", k, v)
+		debugLog("  %s: %v", k, v)
 	}
 
 	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
@@ -342,10 +343,10 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 	if err != nil {
 		atomic.StoreInt32(&c.state, 0) // disconnected
 		if resp != nil {
-			fmt.Printf("[WebSocket] Handshake failed. Response status: %s\n", resp.Status)
-			fmt.Printf("[WebSocket] Response headers:\n")
+			debugLog("[WebSocket] Handshake failed. Response status: %s", resp.Status)
+			debugLog("[WebSocket] Response headers:")
 			for k, v := range resp.Header {
-				fmt.Printf("  %s: %v\n", k, v)
+				debugLog("  %s: %v", k, v)
 			}
 		}
 		return nil, err
@@ -358,8 +359,10 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 
 	// HTTP headers are case-insensitive, Go's Header.Get() is case-insensitive
 	sessionID := ""
+	requestID := ""
 	if resp != nil && resp.Header != nil {
 		sessionID = resp.Header.Get("x-acs-ws-session-id")
+		requestID = resp.Header.Get("x-acs-request-id")
 	}
 
 	if sessionID == "" {
@@ -368,6 +371,7 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 
 	c.session = &WebSocketSessionInfo{
 		SessionID:   sessionID,
+		RequestID:   requestID,
 		ConnectedAt: time.Now(),
 		RemoteAddr:  conn.RemoteAddr().String(),
 		LocalAddr:   conn.LocalAddr().String(),
@@ -436,7 +440,7 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 		// All goroutines finished
 	case <-time.After(5 * time.Second):
 		// Timeout - log warning but continue
-		fmt.Printf("[WebSocket] Warning: timeout waiting for goroutines to finish\n")
+		debugLog("[WebSocket] Warning: timeout waiting for goroutines to finish")
 	}
 
 	if c.session != nil {
@@ -472,7 +476,7 @@ func (c *DefaultWebSocketClient) reconnectInternal(ctx context.Context, graceful
 
 	// Check if already connected (avoid unnecessary reconnection)
 	if c.IsConnected() {
-		fmt.Printf("[WebSocket] Already connected, skipping reconnect\n")
+		debugLog("[WebSocket] Already connected, skipping reconnect")
 		return nil, errors.New("already connected")
 	}
 
@@ -534,13 +538,13 @@ func (c *DefaultWebSocketClient) reconnectInternal(ctx context.Context, graceful
 			c.request.Headers = make(map[string]*string)
 		}
 		c.request.Headers["X-Acs-Ws-Session-Id"] = String(previousSessionID)
-		fmt.Printf("[WebSocket] Graceful reconnection with session ID: %s\n", previousSessionID)
+		debugLog("[WebSocket] Graceful reconnection with session ID: %s", previousSessionID)
 	} else {
 		// Normal reconnection: remove session ID header if exists (to start fresh)
 		if c.request.Headers != nil {
 			delete(c.request.Headers, "X-Acs-Ws-Session-Id")
 		}
-		fmt.Printf("[WebSocket] Normal reconnection (without session ID)\n")
+		debugLog("[WebSocket] Normal reconnection (without session ID)")
 	}
 
 	result, err := c.Connect(ctx, c.request, c.runtimeObject)
@@ -589,7 +593,7 @@ func (c *DefaultWebSocketClient) cleanupResources() {
 		// All goroutines finished
 	case <-time.After(5 * time.Second):
 		// Timeout - log warning but continue
-		fmt.Printf("[WebSocket] Warning: timeout waiting for goroutines to finish during cleanup\n")
+		debugLog("[WebSocket] Warning: timeout waiting for goroutines to finish during cleanup")
 	}
 
 	// Clear session (will be recreated on successful reconnect)
@@ -676,7 +680,7 @@ func (c *DefaultWebSocketClient) SendAwapRequestWithResponse(ctx context.Context
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 
-	fmt.Printf("[AWAP Request] Sent request with ID: %s, waiting for response...\n", msg.ID)
+	debugLog("[AWAP Request] Sent request with ID: %s, waiting for response...", msg.ID)
 
 	// 等待响应（带超时）
 	if timeout <= 0 {
@@ -685,7 +689,7 @@ func (c *DefaultWebSocketClient) SendAwapRequestWithResponse(ctx context.Context
 
 	select {
 	case response := <-responseChan:
-		fmt.Printf("[AWAP Request] Received response for ID: %s\n", msg.ID)
+		debugLog("[AWAP Request] Received response for ID: %s", msg.ID)
 		return response, nil
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("request timeout after %v waiting for response to message ID: %s", timeout, msg.ID)
@@ -708,11 +712,11 @@ func (c *DefaultWebSocketClient) completeAwapRequest(messageID string, response 
 	// 尝试发送响应到等待的 channel
 	select {
 	case responseChan <- response:
-		fmt.Printf("[AWAP Request] Completed request for ID: %s\n", messageID)
+		debugLog("[AWAP Request] Completed request for ID: %s", messageID)
 		return true
 	default:
 		// Channel 已满或已关闭
-		fmt.Printf("[AWAP Request] Warning: Failed to send response to channel for ID: %s\n", messageID)
+		debugLog("[AWAP Request] Warning: Failed to send response to channel for ID: %s", messageID)
 		return false
 	}
 }
@@ -977,10 +981,10 @@ func (c *DefaultWebSocketClient) readMessages() {
 			Timestamp: time.Now(),
 		}
 
-		fmt.Printf("[WebSocket] Received message: type=%d, size=%d bytes\n", messageType, len(data))
+		debugLog("[WebSocket] Received message: type=%d, size=%d bytes", messageType, len(data))
 
 		if c.session == nil {
-			fmt.Printf("[WebSocket] Warning: session is nil, cannot handle message\n")
+			debugLog("[WebSocket] Warning: session is nil, cannot handle message")
 			continue
 		}
 
@@ -1015,7 +1019,7 @@ func (c *DefaultWebSocketClient) handleReconnectMessage(messageType int, msg *We
 		return false
 	}
 
-	fmt.Printf("[WebSocket] Received RECONNECT control message, initiating graceful reconnection\n")
+	debugLog("[WebSocket] Received RECONNECT control message, initiating graceful reconnection")
 	// Trigger graceful reconnection in a goroutine to avoid blocking message reading
 	go func() {
 		c.closeMu.Lock()
@@ -1023,7 +1027,7 @@ func (c *DefaultWebSocketClient) handleReconnectMessage(messageType int, msg *We
 		c.closeMu.Unlock()
 		if reconnectCtx != nil {
 			if _, err := c.ReconnectGracefully(reconnectCtx); err != nil {
-				fmt.Printf("[WebSocket] Graceful reconnection failed: %v\n", err)
+				debugLog("[WebSocket] Graceful reconnection failed: %v", err)
 				if c.session != nil {
 					c.handler.HandleError(c.session, err)
 				}
@@ -1049,7 +1053,7 @@ func (c *DefaultWebSocketClient) handleAwapMessage(messageType int, msg *WebSock
 		return false
 	}
 
-	fmt.Printf("[WebSocket] AWAP handler detected, calling protocol-specific methods\n")
+	debugLog("[WebSocket] AWAP handler detected, calling protocol-specific methods")
 
 	// Check if this is a response to a pending request (MessageReceiveEvent with ack-id)
 	if awapMsg.Type == AwapMessageTypeMessageReceiveEvent {
@@ -1063,14 +1067,14 @@ func (c *DefaultWebSocketClient) handleAwapMessage(messageType int, msg *WebSock
 			if c.completeAwapRequest(ackID, awapMsg) {
 				// Successfully matched and completed a pending request
 				// Skip normal handler processing for this message
-				fmt.Printf("[WebSocket] Response matched and completed for request ID: %s\n", ackID)
+				debugLog("[WebSocket] Response matched and completed for request ID: %s", ackID)
 				return true
 			}
 		}
 	}
 
 	if err := awapHandler.HandleAwapMessage(c.session, awapMsg); err != nil {
-		fmt.Printf("[WebSocket] HandleAwapMessage error: %v\n", err)
+		debugLog("[WebSocket] HandleAwapMessage error: %v", err)
 		c.handler.HandleError(c.session, err)
 	}
 
@@ -1080,7 +1084,7 @@ func (c *DefaultWebSocketClient) handleAwapMessage(messageType int, msg *WebSock
 			RawPayload:  msg.Payload,
 		}
 		if err := awapHandler.HandleAwapIncomingMessage(c.session, incoming); err != nil {
-			fmt.Printf("[WebSocket] HandleAwapIncomingMessage error: %v\n", err)
+			debugLog("[WebSocket] HandleAwapIncomingMessage error: %v", err)
 		}
 	}
 
@@ -1099,10 +1103,10 @@ func (c *DefaultWebSocketClient) handleGeneralMessage(messageType int, msg *WebS
 			return false
 		}
 
-		fmt.Printf("[WebSocket] General handler detected, calling protocol-specific methods\n")
+		debugLog("[WebSocket] General handler detected, calling protocol-specific methods")
 
 		if err := generalHandler.HandleGeneralTextMessage(c.session, genMsg); err != nil {
-			fmt.Printf("[WebSocket] HandleGeneralTextMessage error: %v\n", err)
+			debugLog("[WebSocket] HandleGeneralTextMessage error: %v", err)
 			c.handler.HandleError(c.session, err)
 		}
 
@@ -1113,16 +1117,16 @@ func (c *DefaultWebSocketClient) handleGeneralMessage(messageType int, msg *WebS
 				IsBinary:   false,
 			}
 			if err := generalHandler.HandleGeneralIncomingMessage(c.session, incoming); err != nil {
-				fmt.Printf("[WebSocket] HandleGeneralIncomingMessage error: %v\n", err)
+				debugLog("[WebSocket] HandleGeneralIncomingMessage error: %v", err)
 			}
 		}
 
 		return true
 	} else if messageType == websocket.BinaryMessage {
-		fmt.Printf("[WebSocket] General handler detected, calling binary message handler\n")
+		debugLog("[WebSocket] General handler detected, calling binary message handler")
 
 		if err := generalHandler.HandleGeneralBinaryMessage(c.session, msg.Payload); err != nil {
-			fmt.Printf("[WebSocket] HandleGeneralBinaryMessage error: %v\n", err)
+			debugLog("[WebSocket] HandleGeneralBinaryMessage error: %v", err)
 			c.handler.HandleError(c.session, err)
 		}
 
@@ -1133,7 +1137,7 @@ func (c *DefaultWebSocketClient) handleGeneralMessage(messageType int, msg *WebS
 				IsBinary:   true,
 			}
 			if err := generalHandler.HandleGeneralIncomingMessage(c.session, incoming); err != nil {
-				fmt.Printf("[WebSocket] HandleGeneralIncomingMessage error: %v\n", err)
+				debugLog("[WebSocket] HandleGeneralIncomingMessage error: %v", err)
 			}
 		}
 
@@ -1145,7 +1149,7 @@ func (c *DefaultWebSocketClient) handleGeneralMessage(messageType int, msg *WebS
 
 func (c *DefaultWebSocketClient) handleRawMessageFallback(msg *WebSocketMessage) {
 	if err := c.handler.HandleRawMessage(c.session, msg); err != nil {
-		fmt.Printf("[WebSocket] HandleRawMessage error: %v\n", err)
+		debugLog("[WebSocket] HandleRawMessage error: %v", err)
 		c.handler.HandleError(c.session, err)
 	}
 }
