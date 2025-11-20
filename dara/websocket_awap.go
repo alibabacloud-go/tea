@@ -198,8 +198,37 @@ func ParseAwapMessage(message *WebSocketMessage) (*AwapMessage, error) {
 		}
 	} else {
 		// Pure JSON format
-		if err := json.Unmarshal(data, &awapMsg); err != nil {
-			return nil, fmt.Errorf("failed to parse AWAP message: %w", err)
+		// First parse as map to check if it matches AWAP structure
+		var jsonData map[string]interface{}
+		if err := json.Unmarshal(data, &jsonData); err != nil {
+			return nil, fmt.Errorf("failed to parse AWAP message as JSON: %w", err)
+		}
+
+		// Check if the JSON contains AWAP-specific fields (id, seq, payload, headers)
+		// Standard AWAP messages should have at least one of these fields
+		_, hasID := jsonData["id"]
+		_, hasSeq := jsonData["seq"]
+		_, hasPayload := jsonData["payload"]
+		_, hasHeaders := jsonData["headers"]
+		hasAwapFields := hasID || hasSeq || hasPayload || hasHeaders
+
+		if hasAwapFields {
+			// Try to unmarshal as AwapMessage structure
+			if err := json.Unmarshal(data, &awapMsg); err != nil {
+				return nil, fmt.Errorf("failed to parse AWAP message: %w", err)
+			}
+		} else {
+			// The JSON doesn't match AwapMessage structure (e.g., has receiveTime, clientPayload, type fields)
+			// Put the entire JSON object in Data field
+			awapMsg.Data = jsonData
+			// Also try to extract type if it exists in the JSON (might be MessageReceiveEvent, etc.)
+			if msgType, ok := jsonData["type"].(string); ok {
+				awapMsg.Type = AwapMessageType(msgType)
+			}
+			// Initialize Headers if needed
+			if awapMsg.Headers == nil {
+				awapMsg.Headers = make(map[string]string)
+			}
 		}
 	}
 
