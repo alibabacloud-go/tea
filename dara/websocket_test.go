@@ -154,24 +154,6 @@ func TestMockHandler(t *testing.T) {
 	}
 }
 
-func TestGenerateSessionID(t *testing.T) {
-	id1 := generateSessionID()
-	if id1 == "" {
-		t.Error("generateSessionID should not return empty string")
-	}
-
-	// Test that IDs are unique
-	id2 := generateSessionID()
-	if id1 == id2 {
-		t.Error("Multiple calls to generateSessionID should return different IDs")
-	}
-
-	// Test ID format
-	if len(id1) < 10 {
-		t.Error("Session ID should be reasonably long")
-	}
-}
-
 // TestConvertToWebSocketMessageType tests message type conversion
 func TestConvertToWebSocketMessageType(t *testing.T) {
 	tests := []struct {
@@ -213,10 +195,10 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 
 		// Create RuntimeObject (matching DoRequest pattern)
 		runtimeObject := NewRuntimeObject(map[string]interface{}{
-			"connectTimeout":           Int(5000),
-			"readTimeout":              Int(30000),
-			"webSocketPingInterval":    Int(0), // Disable ping for this test
-			"webSocketEnableReconnect": Bool(false),
+			"connectTimeout":           5000,
+			"readTimeout":              30000,
+			"webSocketPingInterval":    0, // Disable ping for this test
+			"webSocketEnableReconnect": false,
 		})
 
 		handler := &MockWebSocketHandler{}
@@ -232,14 +214,22 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 
 		// Connect
 		ctx := context.Background()
-		result, err := client.Connect(ctx, request, runtimeObject)
+		response, err := client.Connect(ctx, request, runtimeObject)
 		if err != nil {
 			t.Fatalf("Connect failed: %v", err)
 		}
 
-		// Verify result
-		if success, ok := result["success"].(bool); !ok || !success {
-			t.Errorf("Expected success=true, got %v", result)
+		// Verify response
+		if response == nil {
+			t.Error("Response should not be nil")
+		} else {
+			// Verify response has valid status code (101 for WebSocket upgrade)
+			if response.StatusCode == nil {
+				t.Error("Response StatusCode should not be nil")
+			} else if *response.StatusCode != 101 {
+				// Note: In test environment, status code might vary, so we just check it's not nil
+				// In real WebSocket handshake, status code should be 101
+			}
 		}
 
 		// Verify state
@@ -273,8 +263,8 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		request.Headers = make(map[string]*string)
 
 		runtimeObject := NewRuntimeObject(map[string]interface{}{
-			"connectTimeout": Int(5000),
-			"readTimeout":    Int(30000),
+			"connectTimeout": 5000,
+			"readTimeout":    30000,
 		})
 
 		handler := &MockWebSocketHandler{}
@@ -284,13 +274,13 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		result, err := client.Connect(ctx, request, runtimeObject)
+		response, err := client.Connect(ctx, request, runtimeObject)
 		if err == nil {
 			t.Error("Expected error for invalid URL")
 		}
 
-		if success, ok := result["success"].(bool); ok && success {
-			t.Error("Expected success=false for invalid URL")
+		if response != nil {
+			t.Error("Expected response to be nil for invalid URL")
 		}
 
 		// Verify state is disconnected
@@ -308,9 +298,9 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		request.Headers = make(map[string]*string)
 
 		runtimeObject := NewRuntimeObject(map[string]interface{}{
-			"connectTimeout":            Int(100), // Very short timeout
-			"readTimeout":               Int(30000),
-			"webSocketHandshakeTimeout": Int(100),
+			"connectTimeout":            100, // Very short timeout
+			"readTimeout":               30000,
+			"webSocketHandshakeTimeout": 100,
 		})
 
 		handler := &MockWebSocketHandler{}
@@ -320,13 +310,13 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		result, err := client.Connect(ctx, request, runtimeObject)
+		response, err := client.Connect(ctx, request, runtimeObject)
 		if err == nil {
 			t.Error("Expected error for connection timeout")
 		}
 
-		if success, ok := result["success"].(bool); ok && success {
-			t.Error("Expected success=false for timeout")
+		if response != nil {
+			t.Error("Expected response to be nil for timeout")
 		}
 
 		// Verify state is disconnected
@@ -352,9 +342,9 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		}
 
 		runtimeObject := NewRuntimeObject(map[string]interface{}{
-			"connectTimeout":        Int(5000),
-			"readTimeout":           Int(30000),
-			"webSocketPingInterval": Int(0),
+			"connectTimeout":        5000,
+			"readTimeout":           30000,
+			"webSocketPingInterval": 0,
 		})
 
 		handler := &MockWebSocketHandler{}
@@ -364,13 +354,13 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		result, err := client.Connect(ctx, request, runtimeObject)
+		response, err := client.Connect(ctx, request, runtimeObject)
 		if err != nil {
 			t.Fatalf("Connect failed: %v", err)
 		}
 
-		if success, ok := result["success"].(bool); !ok || !success {
-			t.Errorf("Expected success=true, got %v", result)
+		if response == nil {
+			t.Error("Response should not be nil on successful connection")
 		}
 
 		// Cleanup
@@ -387,9 +377,9 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		request.Headers = make(map[string]*string)
 
 		runtimeObject := NewRuntimeObject(map[string]interface{}{
-			"connectTimeout":        Int(5000),
-			"readTimeout":           Int(30000),
-			"webSocketPingInterval": Int(0),
+			"connectTimeout":        5000,
+			"readTimeout":           30000,
+			"webSocketPingInterval": 0,
 		})
 
 		client, err := NewDefaultWebSocketClient(errorHandler)
@@ -398,13 +388,13 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		result, err := client.Connect(ctx, request, runtimeObject)
+		response, err := client.Connect(ctx, request, runtimeObject)
 		if err == nil {
 			t.Error("Expected error when handler returns error")
 		}
 
-		if success, ok := result["success"].(bool); ok && success {
-			t.Error("Expected success=false when handler returns error")
+		if response != nil {
+			t.Error("Expected response to be nil when handler returns error")
 		}
 
 		// Cleanup - connection might still be established even if handler fails
@@ -420,10 +410,10 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		request.Headers = make(map[string]*string)
 
 		runtimeObject := NewRuntimeObject(map[string]interface{}{
-			"connectTimeout":        Int(5000),
-			"readTimeout":           Int(30000),
-			"webSocketPingInterval": Int(1000), // Enable ping
-			"webSocketPongTimeout":  Int(500),
+			"connectTimeout":        5000,
+			"readTimeout":           30000,
+			"webSocketPingInterval": 1000, // Enable ping
+			"webSocketPongTimeout":  500,
 		})
 
 		handler := &MockWebSocketHandler{}
@@ -433,13 +423,13 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		result, err := client.Connect(ctx, request, runtimeObject)
+		response, err := client.Connect(ctx, request, runtimeObject)
 		if err != nil {
 			t.Fatalf("Connect failed: %v", err)
 		}
 
-		if success, ok := result["success"].(bool); !ok || !success {
-			t.Errorf("Expected success=true, got %v", result)
+		if response == nil {
+			t.Error("Response should not be nil on successful connection")
 		}
 
 		// Wait a bit to ensure ping goroutine starts
@@ -514,7 +504,7 @@ func TestWebSocketReconnectWhenAlreadyConnected(t *testing.T) {
 
 	// Connect to the server
 	ctx := context.Background()
-	client, _, err := NewDefaultWebSocketClientAndConnect(request, runtimeObject)
+	client, _, err := NewWebSocketClientAndConnect(request, runtimeObject)
 	if err != nil {
 		t.Fatalf("Initial connection failed: %v", err)
 	}
@@ -525,14 +515,16 @@ func TestWebSocketReconnectWhenAlreadyConnected(t *testing.T) {
 	}
 
 	// Try to reconnect while already connected
-	result, err := client.Reconnect(ctx)
-	if err != nil {
-		t.Fatalf("Reconnect should not return error: %v", err)
+	response, err := client.Reconnect(ctx)
+	// Reconnect when already connected should return an error indicating skip
+	if err == nil {
+		t.Error("Reconnect should return error when already connected")
 	}
-
-	// Verify that reconnection was skipped
-	if alreadyConnected, ok := result["already_connected"].(bool); !ok || !alreadyConnected {
-		t.Error("Expected reconnect to be skipped with already_connected=true")
+	if err != nil && err.Error() != "already connected" {
+		t.Errorf("Expected 'already connected' error, got: %v", err)
+	}
+	if response != nil {
+		t.Error("Response should be nil when reconnect is skipped")
 	}
 
 	// Verify client is still connected

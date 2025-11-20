@@ -244,12 +244,12 @@ func BuildAwapMessageText(message *AwapMessage) (string, error) {
 	if message == nil {
 		return "", fmt.Errorf("message cannot be nil")
 	}
-
+	now := time.Now()
 	var headerBuilder strings.Builder
 
 	headerBuilder.WriteString(fmt.Sprintf("type:%s\n", string(message.Type)))
 	headerBuilder.WriteString(fmt.Sprintf("seq:%d\n", message.Seq))
-	headerBuilder.WriteString(fmt.Sprintf("timestamp:%d\n", time.Now().UnixMilli()))
+	headerBuilder.WriteString(fmt.Sprintf("timestamp:%d\n", now.Unix()*1000+int64(now.Nanosecond())/1e6))
 
 	if message.ID != "" {
 		headerBuilder.WriteString(fmt.Sprintf("id:%s\n", message.ID))
