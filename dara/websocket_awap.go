@@ -219,9 +219,9 @@ func ParseAwapMessage(message *WebSocketMessage) (*AwapMessage, error) {
 			}
 		} else {
 			// The JSON doesn't match AwapMessage structure (e.g., has receiveTime, clientPayload, type fields)
-			// Put the entire JSON object in Data field
-			awapMsg.Data = jsonData
-			// Also try to extract type if it exists in the JSON (might be MessageReceiveEvent, etc.)
+			// Put the entire JSON object in Payload field
+			awapMsg.Payload = jsonData
+			// Extract type from JSON if it exists (might be MessageReceiveEvent, etc.)
 			if msgType, ok := jsonData["type"].(string); ok {
 				awapMsg.Type = AwapMessageType(msgType)
 			}
