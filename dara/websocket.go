@@ -119,28 +119,30 @@ type DefaultWebSocketClient struct {
 	pendingRequestsMu sync.RWMutex                 // 保护 pendingRequests map
 
 	// 零值可用的字段（sync 类型）
-	reconnectMu sync.Mutex
-	closeMu     sync.Mutex
-	wg          sync.WaitGroup
+	reconnectMu          sync.Mutex
+	closeMu              sync.Mutex
+	wg                   sync.WaitGroup
+	websocketSubProtocol *string
 }
 
-func NewDefaultWebSocketClient(handler WebSocketHandler) (*DefaultWebSocketClient, error) {
+func NewDefaultWebSocketClient(handler WebSocketHandler, websocketSubProtocol *string) (*DefaultWebSocketClient, error) {
 	if handler == nil {
 		return nil, errors.New("handler cannot be nil")
 	}
 
 	client := &DefaultWebSocketClient{
-		handler:         handler,
-		stopChan:        make(chan struct{}),
-		pongReceived:    make(chan struct{}, 1),
-		state:           0, // disconnected
-		pendingRequests: make(map[string]chan *AwapMessage),
+		handler:              handler,
+		stopChan:             make(chan struct{}),
+		pongReceived:         make(chan struct{}, 1),
+		state:                0, // disconnected
+		pendingRequests:      make(map[string]chan *AwapMessage),
+		websocketSubProtocol: websocketSubProtocol,
 	}
 
 	return client, nil
 }
 
-func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject) (*DefaultWebSocketClient, *Response, error) {
+func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject, websocketSubProtocol *string) (*DefaultWebSocketClient, *Response, error) {
 	if runtimeObject == nil {
 		return nil, nil, errors.New("runtimeObject cannot be nil")
 	}
@@ -158,7 +160,7 @@ func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject
 
 	ctx := context.Background()
 
-	client, err := NewDefaultWebSocketClient(handler)
+	client, err := NewDefaultWebSocketClient(handler, websocketSubProtocol)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -171,7 +173,7 @@ func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject
 	return client, response, nil
 }
 
-func NewWebSocketClientAndConnectWithContext(ctx context.Context, request *Request, runtimeObject *RuntimeObject) (*DefaultWebSocketClient, *Response, error) {
+func NewWebSocketClientAndConnectWithContext(ctx context.Context, request *Request, runtimeObject *RuntimeObject, websocketSubProtocol *string) (*DefaultWebSocketClient, *Response, error) {
 	if runtimeObject == nil {
 		return nil, nil, errors.New("runtimeObject cannot be nil")
 	}
@@ -187,7 +189,7 @@ func NewWebSocketClientAndConnectWithContext(ctx context.Context, request *Reque
 		return nil, nil, errors.New("WebSocketHandler is required: please set it in runtimeObject.WebSocketHandler")
 	}
 
-	client, err := NewDefaultWebSocketClient(handler)
+	client, err := NewDefaultWebSocketClient(handler, websocketSubProtocol)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -233,7 +235,7 @@ func buildWebSocketURL(request *Request) (string, error) {
 		requestURL += "/"
 	}
 
-	if request.Query != nil && len(request.Query) > 0 {
+	if len(request.Query) > 0 {
 		q := url.Values{}
 		for key, value := range request.Query {
 			if value != nil {

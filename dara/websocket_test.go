@@ -48,8 +48,8 @@ func (h *MockWebSocketHandler) SupportsPartialMessages() bool {
 func TestWebSocketClientCreation(t *testing.T) {
 	handler := &MockWebSocketHandler{}
 
-	// Test new API: NewDefaultWebSocketClient only takes handler
-	client, err := NewDefaultWebSocketClient(handler)
+	// Test new API: NewDefaultWebSocketClient takes handler and websocketSubProtocol
+	client, err := NewDefaultWebSocketClient(handler, nil)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestWebSocketClientCreation(t *testing.T) {
 	}
 
 	// Test error cases
-	_, err = NewDefaultWebSocketClient(nil)
+	_, err = NewDefaultWebSocketClient(nil, nil)
 	if err == nil {
 		t.Error("Expected error when handler is nil")
 	}
@@ -202,7 +202,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		})
 
 		handler := &MockWebSocketHandler{}
-		client, err := NewDefaultWebSocketClient(handler)
+		client, err := NewDefaultWebSocketClient(handler, nil)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
@@ -268,7 +268,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		})
 
 		handler := &MockWebSocketHandler{}
-		client, err := NewDefaultWebSocketClient(handler)
+		client, err := NewDefaultWebSocketClient(handler, nil)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
@@ -304,7 +304,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		})
 
 		handler := &MockWebSocketHandler{}
-		client, err := NewDefaultWebSocketClient(handler)
+		client, err := NewDefaultWebSocketClient(handler, nil)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
@@ -348,7 +348,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		})
 
 		handler := &MockWebSocketHandler{}
-		client, err := NewDefaultWebSocketClient(handler)
+		client, err := NewDefaultWebSocketClient(handler, nil)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
@@ -382,7 +382,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 			"webSocketPingInterval": 0,
 		})
 
-		client, err := NewDefaultWebSocketClient(errorHandler)
+		client, err := NewDefaultWebSocketClient(errorHandler, nil)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
@@ -417,7 +417,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		})
 
 		handler := &MockWebSocketHandler{}
-		client, err := NewDefaultWebSocketClient(handler)
+		client, err := NewDefaultWebSocketClient(handler, nil)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
@@ -503,7 +503,7 @@ func TestWebSocketReconnectWhenAlreadyConnected(t *testing.T) {
 	}
 
 	// Connect to the server
-	client, _, err := NewWebSocketClientAndConnect(request, runtimeObject)
+	client, _, err := NewWebSocketClientAndConnect(request, runtimeObject, nil)
 	if err != nil {
 		t.Fatalf("Initial connection failed: %v", err)
 	}
