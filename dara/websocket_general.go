@@ -128,15 +128,20 @@ func ParseGeneralMessage(message *WebSocketMessage) (*GeneralMessage, error) {
 		return nil, fmt.Errorf("general text messages must be text format")
 	}
 
-	var generalMsg GeneralMessage
-	if err := json.Unmarshal(message.Payload, &generalMsg); err != nil {
-		// If not JSON, treat the entire payload as body
+	// Parse the entire JSON payload as the body
+	// The actual message format may contain fields like receiveTime, clientPayload, type, etc.
+	// We parse the entire JSON object and put it in Body field
+	var body interface{}
+	if err := json.Unmarshal(message.Payload, &body); err != nil {
+		// If not JSON, treat the entire payload as string body
 		return &GeneralMessage{
 			Body: string(message.Payload),
 		}, nil
 	}
 
-	return &generalMsg, nil
+	return &GeneralMessage{
+		Body: body,
+	}, nil
 }
 
 func (m *GeneralMessage) ToJSON() ([]byte, error) {
