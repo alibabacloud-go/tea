@@ -29,6 +29,12 @@ const (
 	WebSocketMessageTypeClose
 )
 
+// WebSocket subprotocol constants
+const (
+	WebSocketSubProtocolAWAP    = "awap"
+	WebSocketSubProtocolGeneral = "general"
+)
+
 type WebSocketMessage struct {
 	Type      WebSocketMessageType
 	Payload   []byte
@@ -360,6 +366,11 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 				header.Set(k, StringValue(v))
 			}
 		}
+	}
+
+	// Set subprotocol in handshake header if specified
+	if c.websocketSubProtocol != nil && StringValue(c.websocketSubProtocol) != "" {
+		header.Set("Sec-WebSocket-Protocol", StringValue(c.websocketSubProtocol))
 	}
 
 	debugLog("[WebSocket] Handshake headers:")
@@ -1013,11 +1024,8 @@ func (c *DefaultWebSocketClient) readMessages() {
 			return
 		}
 
-		handled := c.handleAwapMessage(messageType, msg)
-		if !handled {
-			handled = c.handleGeneralMessage(messageType, msg)
-		}
-
+		// Directly route based on subprotocol instead of type assertion detection
+		handled := c.handleMessageBySubProtocol(messageType, msg)
 		if !handled {
 			c.handleRawMessageFallback(msg)
 		}
@@ -1052,6 +1060,29 @@ func (c *DefaultWebSocketClient) handleReconnectMessage(messageType int, msg *We
 
 	}()
 	return true
+}
+
+// handleMessageBySubProtocol routes messages based on websocketSubProtocol
+// Returns true if message was handled, false otherwise
+func (c *DefaultWebSocketClient) handleMessageBySubProtocol(messageType int, msg *WebSocketMessage) bool {
+	subProtocol := ""
+	if c.websocketSubProtocol != nil {
+		subProtocol = strings.ToLower(StringValue(c.websocketSubProtocol))
+	}
+
+	switch subProtocol {
+	case WebSocketSubProtocolAWAP:
+		return c.handleAwapMessage(messageType, msg)
+	case WebSocketSubProtocolGeneral:
+		return c.handleGeneralMessage(messageType, msg)
+	default:
+		// No subprotocol specified, fall back to type assertion detection for backward compatibility
+		handled := c.handleAwapMessage(messageType, msg)
+		if !handled {
+			handled = c.handleGeneralMessage(messageType, msg)
+		}
+		return handled
+	}
 }
 
 // Returns true if message was handled, false otherwise
