@@ -34,30 +34,6 @@ type RuntimeOptions = util.RuntimeOptions
 
 type ExtendsParameters = util.ExtendsParameters
 
-// Returns a map of WebSocket config values that can be used to configure WebSocket connections
-func GetWebSocketConfig(runtime interface{}) map[string]interface{} {
-	if runtime == nil {
-		return nil
-	}
-
-	rt, ok := runtime.(*RuntimeOptions)
-	if !ok {
-		return nil
-	}
-
-	return map[string]interface{}{
-		"webSocketPingInterval":      rt.WebSocketPingInterval,
-		"webSocketPongTimeout":       rt.WebSocketPongTimeout,
-		"webSocketMaxMessageSize":    rt.WebSocketMaxMessageSize,
-		"webSocketEnableReconnect":   rt.WebSocketEnableReconnect,
-		"webSocketReconnectInterval": rt.WebSocketReconnectInterval,
-		"webSocketMaxReconnectTimes": rt.WebSocketMaxReconnectTimes,
-		"webSocketWriteTimeout":      rt.WebSocketWriteTimeout,
-		"webSocketHandshakeTimeout":  rt.WebSocketHandshakeTimeout,
-		"webSocketEnableCompression": rt.WebSocketEnableCompression,
-	}
-}
-
 func GetWebSocketPingInterval(runtime interface{}) *int {
 	if runtime == nil {
 		return nil
@@ -134,16 +110,6 @@ func GetWebSocketHandshakeTimeout(runtime interface{}) *int {
 	}
 	if rt, ok := runtime.(*RuntimeOptions); ok {
 		return rt.WebSocketHandshakeTimeout
-	}
-	return nil
-}
-
-func GetWebSocketEnableCompression(runtime interface{}) *bool {
-	if runtime == nil {
-		return nil
-	}
-	if rt, ok := runtime.(*RuntimeOptions); ok {
-		return rt.WebSocketEnableCompression
 	}
 	return nil
 }
@@ -248,7 +214,6 @@ type RuntimeObject struct {
 	WebSocketMaxReconnectTimes *int        `json:"webSocketMaxReconnectTimes" xml:"webSocketMaxReconnectTimes"`
 	WebSocketWriteTimeout      *int        `json:"webSocketWriteTimeout" xml:"webSocketWriteTimeout"`
 	WebSocketHandshakeTimeout  *int        `json:"webSocketHandshakeTimeout" xml:"webSocketHandshakeTimeout"`
-	WebSocketEnableCompression *bool       `json:"webSocketEnableCompression" xml:"webSocketEnableCompression"`
 	WebSocketHandler           interface{} `json:"-" xml:"-"` // WebSocket handler (not serialized)
 }
 
@@ -288,7 +253,6 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 		WebSocketMaxReconnectTimes: TransInterfaceToInt(runtime["webSocketMaxReconnectTimes"]),
 		WebSocketWriteTimeout:      TransInterfaceToInt(runtime["webSocketWriteTimeout"]),
 		WebSocketHandshakeTimeout:  TransInterfaceToInt(runtime["webSocketHandshakeTimeout"]),
-		WebSocketEnableCompression: TransInterfaceToBool(runtime["webSocketEnableCompression"]),
 	}
 	if runtime["listener"] != nil {
 		runtimeObject.Listener = runtime["listener"].(utils.ProgressListener)

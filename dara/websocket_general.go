@@ -19,12 +19,10 @@ const (
 )
 
 type GeneralMessage struct {
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    interface{}       `json:"body,omitempty"`
+	Body interface{} `json:"body,omitempty"`
 }
 
 type GeneralIncomingMessage struct {
-	Headers    map[string]string
 	Body       interface{}
 	RawPayload []byte
 	IsBinary   bool
@@ -134,13 +132,8 @@ func ParseGeneralMessage(message *WebSocketMessage) (*GeneralMessage, error) {
 	if err := json.Unmarshal(message.Payload, &generalMsg); err != nil {
 		// If not JSON, treat the entire payload as body
 		return &GeneralMessage{
-			Headers: make(map[string]string),
-			Body:    string(message.Payload),
+			Body: string(message.Payload),
 		}, nil
-	}
-
-	if generalMsg.Headers == nil {
-		generalMsg.Headers = make(map[string]string)
 	}
 
 	return &generalMsg, nil
@@ -148,19 +141,4 @@ func ParseGeneralMessage(message *WebSocketMessage) (*GeneralMessage, error) {
 
 func (m *GeneralMessage) ToJSON() ([]byte, error) {
 	return json.Marshal(m)
-}
-
-func (m *GeneralMessage) WithHeader(key, value string) *GeneralMessage {
-	if m.Headers == nil {
-		m.Headers = make(map[string]string)
-	}
-	m.Headers[key] = value
-	return m
-}
-
-func (m *GeneralMessage) GetHeader(key string) string {
-	if m.Headers == nil {
-		return ""
-	}
-	return m.Headers[key]
 }

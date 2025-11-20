@@ -1108,7 +1108,6 @@ func (c *DefaultWebSocketClient) handleGeneralMessage(messageType int, msg *WebS
 
 		if hasCustomHandleGeneralIncomingMessage(generalHandler) {
 			incoming := &GeneralIncomingMessage{
-				Headers:    genMsg.Headers,
 				Body:       genMsg.Body,
 				RawPayload: msg.Payload,
 				IsBinary:   false,
@@ -1129,7 +1128,6 @@ func (c *DefaultWebSocketClient) handleGeneralMessage(messageType int, msg *WebS
 
 		if hasCustomHandleGeneralIncomingMessage(generalHandler) {
 			incoming := &GeneralIncomingMessage{
-				Headers:    make(map[string]string),
 				Body:       nil,
 				RawPayload: msg.Payload,
 				IsBinary:   true,
