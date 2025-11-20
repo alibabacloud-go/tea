@@ -252,7 +252,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		}
 
 		// Cleanup
-		client.Disconnect(ctx)
+		client.Disconnect()
 	})
 
 	t.Run("Invalid URL", func(t *testing.T) {
@@ -364,7 +364,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		}
 
 		// Cleanup
-		client.Disconnect(ctx)
+		client.Disconnect()
 	})
 
 	t.Run("Handler error on connection established", func(t *testing.T) {
@@ -398,7 +398,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		}
 
 		// Cleanup - connection might still be established even if handler fails
-		client.Disconnect(ctx)
+		client.Disconnect()
 	})
 
 	t.Run("Connection with ping interval", func(t *testing.T) {
@@ -436,7 +436,7 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// Cleanup
-		client.Disconnect(ctx)
+		client.Disconnect()
 	})
 }
 
@@ -503,7 +503,6 @@ func TestWebSocketReconnectWhenAlreadyConnected(t *testing.T) {
 	}
 
 	// Connect to the server
-	ctx := context.Background()
 	client, _, err := NewWebSocketClientAndConnect(request, runtimeObject)
 	if err != nil {
 		t.Fatalf("Initial connection failed: %v", err)
@@ -515,7 +514,7 @@ func TestWebSocketReconnectWhenAlreadyConnected(t *testing.T) {
 	}
 
 	// Try to reconnect while already connected
-	response, err := client.Reconnect(ctx)
+	response, err := client.Reconnect()
 	// Reconnect when already connected should return an error indicating skip
 	if err == nil {
 		t.Error("Reconnect should return error when already connected")

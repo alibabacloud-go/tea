@@ -78,12 +78,12 @@ type WebSocketHandler interface {
 
 type WebSocketClient interface {
 	Connect(ctx context.Context, request *Request, runtimeObject *RuntimeObject) (*Response, error)
-	Disconnect(ctx context.Context) error
-	Reconnect(ctx context.Context) (*Response, error)
-	ReconnectGracefully(ctx context.Context) (*Response, error) // Graceful reconnection with session ID
+	Disconnect() error
+	Reconnect() (*Response, error)
+	ReconnectGracefully() (*Response, error) // Graceful reconnection with session ID
 	IsConnected() bool
-	SendText(ctx context.Context, text string) error
-	SendBinary(ctx context.Context, data []byte) error
+	SendText(text string) error
+	SendBinary(data []byte) error
 	GetSessionInfo() *WebSocketSessionInfo
 	Close() error
 }
@@ -171,6 +171,35 @@ func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject
 	return client, response, nil
 }
 
+func NewWebSocketClientAndConnectWithContext(ctx context.Context, request *Request, runtimeObject *RuntimeObject) (*DefaultWebSocketClient, *Response, error) {
+	if runtimeObject == nil {
+		return nil, nil, errors.New("runtimeObject cannot be nil")
+	}
+
+	var handler WebSocketHandler
+	if runtimeObject.WebSocketHandler != nil {
+		if wsHandler, ok := runtimeObject.WebSocketHandler.(WebSocketHandler); ok {
+			handler = wsHandler
+		}
+	}
+
+	if handler == nil {
+		return nil, nil, errors.New("WebSocketHandler is required: please set it in runtimeObject.WebSocketHandler")
+	}
+
+	client, err := NewDefaultWebSocketClient(handler)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	response, err := client.Connect(ctx, request, runtimeObject)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return client, response, nil
+}
+
 func buildWebSocketURL(request *Request) (string, error) {
 	if request == nil {
 		return "", errors.New("request cannot be nil")
@@ -227,7 +256,7 @@ func buildWebSocketURL(request *Request) (string, error) {
 func (c *DefaultWebSocketClient) updateTimeoutConfig(runtimeObject *RuntimeObject) {
 	c.pingInterval = time.Duration(IntValue(runtimeObject.WebSocketPingInterval)) * time.Millisecond
 	if c.pingInterval <= 0 {
-		c.pingInterval = 0 // No ping if not configured
+		c.pingInterval = 10 * time.Second // Default
 	}
 
 	c.reconnectInterval = time.Duration(IntValue(runtimeObject.WebSocketReconnectInterval)) * time.Millisecond
@@ -247,7 +276,7 @@ func (c *DefaultWebSocketClient) updateTimeoutConfig(runtimeObject *RuntimeObjec
 
 	c.pongTimeout = time.Duration(IntValue(runtimeObject.WebSocketPongTimeout)) * time.Millisecond
 	if c.pongTimeout <= 0 {
-		c.pongTimeout = 10 * time.Second // Default
+		c.pongTimeout = 5 * time.Second // Default
 	}
 
 	c.maxReconnectTimes = IntValue(runtimeObject.WebSocketMaxReconnectTimes)
@@ -393,7 +422,7 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 	return response, nil
 }
 
-func (c *DefaultWebSocketClient) Disconnect(ctx context.Context) error {
+func (c *DefaultWebSocketClient) Disconnect() error {
 	return c.disconnect(1000, "Normal closure")
 }
 
@@ -459,18 +488,18 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 	return nil
 }
 
-func (c *DefaultWebSocketClient) Reconnect(ctx context.Context) (*Response, error) {
-	return c.reconnectInternal(ctx, false)
+func (c *DefaultWebSocketClient) Reconnect() (*Response, error) {
+	return c.reconnectInternal(false)
 }
 
 // ReconnectGracefully performs a graceful reconnection (server-initiated via RECONNECT control message, with session ID)
-func (c *DefaultWebSocketClient) ReconnectGracefully(ctx context.Context) (*Response, error) {
-	return c.reconnectInternal(ctx, true)
+func (c *DefaultWebSocketClient) ReconnectGracefully() (*Response, error) {
+	return c.reconnectInternal(true)
 }
 
 // reconnectInternal is the internal implementation for both normal and graceful reconnection
 // graceful: true for graceful reconnection (uses session ID), false for normal reconnection (doesn't use session ID)
-func (c *DefaultWebSocketClient) reconnectInternal(ctx context.Context, graceful bool) (*Response, error) {
+func (c *DefaultWebSocketClient) reconnectInternal(graceful bool) (*Response, error) {
 	c.reconnectMu.Lock()
 	defer c.reconnectMu.Unlock()
 
@@ -482,8 +511,8 @@ func (c *DefaultWebSocketClient) reconnectInternal(ctx context.Context, graceful
 
 	// Check if context is already cancelled (client might be closing)
 	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	case <-c.ctx.Done():
+		return nil, c.ctx.Err()
 	default:
 	}
 
@@ -514,16 +543,16 @@ func (c *DefaultWebSocketClient) reconnectInternal(ctx context.Context, graceful
 
 	// Use context-aware sleep to allow cancellation during reconnect interval
 	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	case <-c.ctx.Done():
+		return nil, c.ctx.Err()
 	case <-time.After(c.reconnectInterval):
 		// Continue with reconnect
 	}
 
 	// Check context again before attempting connection
 	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	case <-c.ctx.Done():
+		return nil, c.ctx.Err()
 	default:
 	}
 
@@ -547,7 +576,7 @@ func (c *DefaultWebSocketClient) reconnectInternal(ctx context.Context, graceful
 		debugLog("[WebSocket] Normal reconnection (without session ID)")
 	}
 
-	result, err := c.Connect(ctx, c.request, c.runtimeObject)
+	result, err := c.Connect(c.ctx, c.request, c.runtimeObject)
 	if err == nil {
 		c.reconnectCount = 0 // Reset on success
 	}
@@ -606,7 +635,7 @@ func (c *DefaultWebSocketClient) IsConnected() bool {
 	return atomic.LoadInt32(&c.state) == 2
 }
 
-func (c *DefaultWebSocketClient) SendText(ctx context.Context, text string) error {
+func (c *DefaultWebSocketClient) SendText(text string) error {
 	if !c.IsConnected() {
 		return errors.New("not connected")
 	}
@@ -618,7 +647,7 @@ func (c *DefaultWebSocketClient) SendText(ctx context.Context, text string) erro
 	return c.conn.WriteMessage(websocket.TextMessage, []byte(text))
 }
 
-func (c *DefaultWebSocketClient) SendBinary(ctx context.Context, data []byte) error {
+func (c *DefaultWebSocketClient) SendBinary(data []byte) error {
 	if !c.IsConnected() {
 		return errors.New("not connected")
 	}
@@ -643,13 +672,13 @@ func (c *DefaultWebSocketClient) Close() error {
 //
 // The message ID must be unique and will be used to match the response.
 // Returns the response message or error if timeout/failure occurs.
-func (c *DefaultWebSocketClient) SendAwapRequestWithResponse(ctx context.Context, msg *AwapMessage, timeout time.Duration) (*AwapMessage, error) {
-	if msg == nil {
-		return nil, errors.New("message cannot be nil")
+func (c *DefaultWebSocketClient) SendAwapRequestWithResponse(msgID string, messageText string, timeout time.Duration) (*AwapMessage, error) {
+	if msgID == "" {
+		return nil, errors.New("message ID cannot be empty for request-response pattern")
 	}
 
-	if msg.ID == "" {
-		return nil, errors.New("message ID cannot be empty for request-response pattern")
+	if messageText == "" {
+		return nil, errors.New("message text cannot be empty for request-response pattern")
 	}
 
 	// 创建响应 channel
@@ -657,30 +686,24 @@ func (c *DefaultWebSocketClient) SendAwapRequestWithResponse(ctx context.Context
 
 	// 注册待处理请求
 	c.pendingRequestsMu.Lock()
-	c.pendingRequests[msg.ID] = responseChan
+	c.pendingRequests[msgID] = responseChan
 	c.pendingRequestsMu.Unlock()
 
 	// 确保清理
 	defer func() {
 		c.pendingRequestsMu.Lock()
-		delete(c.pendingRequests, msg.ID)
+		delete(c.pendingRequests, msgID)
 		c.pendingRequestsMu.Unlock()
 		close(responseChan)
 	}()
 
-	// 构造 AWAP 消息文本（复用公共方法）
-	messageText, err := BuildAwapMessageText(msg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build AWAP message: %w", err)
-	}
-
 	// 发送消息
-	err = c.SendText(ctx, messageText)
+	err := c.SendText(messageText)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 
-	debugLog("[AWAP Request] Sent request with ID: %s, waiting for response...", msg.ID)
+	debugLog("[AWAP Request] Sent request with ID: %s, waiting for response...", msgID)
 
 	// 等待响应（带超时）
 	if timeout <= 0 {
@@ -689,12 +712,12 @@ func (c *DefaultWebSocketClient) SendAwapRequestWithResponse(ctx context.Context
 
 	select {
 	case response := <-responseChan:
-		debugLog("[AWAP Request] Received response for ID: %s", msg.ID)
+		debugLog("[AWAP Request] Received response for ID: %s", msgID)
 		return response, nil
 	case <-time.After(timeout):
-		return nil, fmt.Errorf("request timeout after %v waiting for response to message ID: %s", timeout, msg.ID)
-	case <-ctx.Done():
-		return nil, fmt.Errorf("request cancelled: %w", ctx.Err())
+		return nil, fmt.Errorf("request timeout after %v waiting for response to message ID: %s", timeout, msgID)
+	case <-c.ctx.Done():
+		return nil, fmt.Errorf("request cancelled: %w", c.ctx.Err())
 	case <-c.stopChan:
 		return nil, errors.New("client is closing")
 	}
@@ -962,12 +985,8 @@ func (c *DefaultWebSocketClient) readMessages() {
 				return
 			default:
 				if BoolValue(c.runtimeObject.WebSocketEnableReconnect) {
-					// Use the connection's context so reconnect can be cancelled
-					c.closeMu.Lock()
-					reconnectCtx := c.ctx
-					c.closeMu.Unlock()
-					if reconnectCtx != nil && c.request != nil {
-						go c.Reconnect(reconnectCtx)
+					if c.request != nil {
+						go c.Reconnect()
 					}
 				}
 			}
@@ -1015,24 +1034,20 @@ func (c *DefaultWebSocketClient) handleReconnectMessage(messageType int, msg *We
 		return false
 	}
 
-	if awapMsg.Type != AwapMessageTypeReconnect {
+	if awapMsg.Type != "RECONNECT" {
 		return false
 	}
 
 	debugLog("[WebSocket] Received RECONNECT control message, initiating graceful reconnection")
 	// Trigger graceful reconnection in a goroutine to avoid blocking message reading
 	go func() {
-		c.closeMu.Lock()
-		reconnectCtx := c.ctx
-		c.closeMu.Unlock()
-		if reconnectCtx != nil {
-			if _, err := c.ReconnectGracefully(reconnectCtx); err != nil {
-				debugLog("[WebSocket] Graceful reconnection failed: %v", err)
-				if c.session != nil {
-					c.handler.HandleError(c.session, err)
-				}
+		if _, err := c.ReconnectGracefully(); err != nil {
+			debugLog("[WebSocket] Graceful reconnection failed: %v", err)
+			if c.session != nil {
+				c.handler.HandleError(c.session, err)
 			}
 		}
+
 	}()
 	return true
 }
@@ -1044,10 +1059,6 @@ func (c *DefaultWebSocketClient) handleAwapMessage(messageType int, msg *WebSock
 		return false
 	}
 
-	if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
-		return false
-	}
-
 	awapMsg, err := ParseAwapMessage(msg)
 	if err != nil {
 		return false
@@ -1055,22 +1066,17 @@ func (c *DefaultWebSocketClient) handleAwapMessage(messageType int, msg *WebSock
 
 	debugLog("[WebSocket] AWAP handler detected, calling protocol-specific methods")
 
-	// Check if this is a response to a pending request (MessageReceiveEvent with ack-id)
-	if awapMsg.Type == AwapMessageTypeMessageReceiveEvent {
-		var ackID string
-		if awapMsg.Headers != nil {
-			ackID = awapMsg.Headers["ack-id"]
-		}
+	var ackID string
+	if awapMsg.Headers != nil {
+		ackID = awapMsg.Headers["ack-id"]
+	}
 
-		if ackID != "" {
-			// Try to complete pending request
-			if c.completeAwapRequest(ackID, awapMsg) {
-				// Successfully matched and completed a pending request
-				// Skip normal handler processing for this message
-				debugLog("[WebSocket] Response matched and completed for request ID: %s", ackID)
-				return true
-			}
-		}
+	// Try to complete pending request
+	if ackID != "" && c.completeAwapRequest(ackID, awapMsg) {
+		// Successfully matched and completed a pending request
+		// Skip normal handler processing for this message
+		debugLog("[WebSocket] Response matched and completed for request ID: %s", ackID)
+		return true
 	}
 
 	if err := awapHandler.HandleAwapMessage(c.session, awapMsg); err != nil {
@@ -1187,13 +1193,7 @@ func (c *DefaultWebSocketClient) startPingPong() {
 				case <-time.After(c.pongTimeout):
 					// Pong timeout, try to reconnect
 					if BoolValue(c.runtimeObject.WebSocketEnableReconnect) {
-						// Use the connection's context so reconnect can be cancelled
-						c.closeMu.Lock()
-						reconnectCtx := c.ctx
-						c.closeMu.Unlock()
-						if reconnectCtx != nil {
-							go c.Reconnect(reconnectCtx)
-						}
+						go c.Reconnect()
 					}
 					return
 				}

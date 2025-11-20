@@ -6,26 +6,9 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 )
 
 type AwapMessageType string
-
-const (
-	// Upstream event types (client -> server)
-	AwapMessageTypeUpstreamTextEvent    AwapMessageType = "UpstreamTextEvent"
-	AwapMessageTypeUpstreamBinaryEvent  AwapMessageType = "UpstreamBinaryEvent"
-	AwapMessageTypeAckRequiredTextEvent AwapMessageType = "AckRequiredTextEvent"
-
-	// Downstream event types (server -> client)
-	AwapMessageTypeMessageReceiveEvent   AwapMessageType = "MessageReceiveEvent"
-	AwapMessageTypeDownstreamTextEvent   AwapMessageType = "DownstreamTextEvent"
-	AwapMessageTypeDownstreamBinaryEvent AwapMessageType = "DownstreamBinaryEvent"
-
-	// Control message types (server -> client)
-	AwapMessageTypeReconnect AwapMessageType = "RECONNECT" // Server-initiated graceful reconnection
-)
-
 type AwapMessageFormat string
 
 const (
@@ -238,42 +221,4 @@ func (m *AwapMessage) WithHeader(key, value string) *AwapMessage {
 func (m *AwapMessage) WithFormat(format AwapMessageFormat) *AwapMessage {
 	m.Format = format
 	return m
-}
-
-func BuildAwapMessageText(message *AwapMessage) (string, error) {
-	if message == nil {
-		return "", fmt.Errorf("message cannot be nil")
-	}
-	now := time.Now()
-	var headerBuilder strings.Builder
-
-	headerBuilder.WriteString(fmt.Sprintf("type:%s\n", string(message.Type)))
-	headerBuilder.WriteString(fmt.Sprintf("seq:%d\n", message.Seq))
-	headerBuilder.WriteString(fmt.Sprintf("timestamp:%d\n", now.Unix()*1000+int64(now.Nanosecond())/1e6))
-
-	if message.ID != "" {
-		headerBuilder.WriteString(fmt.Sprintf("id:%s\n", message.ID))
-	}
-
-	// Auto-add ack:required for AckRequiredTextEvent
-	if message.Type == AwapMessageTypeAckRequiredTextEvent {
-		headerBuilder.WriteString("ack:required\n")
-	}
-
-	// Add empty line to separate headers and payload
-	headerBuilder.WriteString("\n")
-
-	// Serialize payload to JSON
-	var payloadJSON []byte
-	var err error
-	if message.Payload != nil {
-		payloadJSON, err = json.Marshal(message.Payload)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal AWAP payload: %w", err)
-		}
-	} else {
-		payloadJSON = []byte("{}")
-	}
-
-	return headerBuilder.String() + string(payloadJSON), nil
 }
