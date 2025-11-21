@@ -128,27 +128,26 @@ type DefaultWebSocketClient struct {
 	reconnectMu          sync.Mutex
 	closeMu              sync.Mutex
 	wg                   sync.WaitGroup
-	websocketSubProtocol *string
+	websocketSubProtocol *string // 在 Connect 时从 runtimeObject 获取并缓存
 }
 
-func NewDefaultWebSocketClient(handler WebSocketHandler, websocketSubProtocol *string) (*DefaultWebSocketClient, error) {
+func NewDefaultWebSocketClient(handler WebSocketHandler) (*DefaultWebSocketClient, error) {
 	if handler == nil {
 		return nil, errors.New("handler cannot be nil")
 	}
 
 	client := &DefaultWebSocketClient{
-		handler:              handler,
-		stopChan:             make(chan struct{}),
-		pongReceived:         make(chan struct{}, 1),
-		state:                0, // disconnected
-		pendingRequests:      make(map[string]chan *AwapMessage),
-		websocketSubProtocol: websocketSubProtocol,
+		handler:         handler,
+		stopChan:        make(chan struct{}),
+		pongReceived:    make(chan struct{}, 1),
+		state:           0, // disconnected
+		pendingRequests: make(map[string]chan *AwapMessage),
 	}
 
 	return client, nil
 }
 
-func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject, websocketSubProtocol *string) (*DefaultWebSocketClient, *Response, error) {
+func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject) (*DefaultWebSocketClient, *Response, error) {
 	if runtimeObject == nil {
 		return nil, nil, errors.New("runtimeObject cannot be nil")
 	}
@@ -166,7 +165,7 @@ func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject
 
 	ctx := context.Background()
 
-	client, err := NewDefaultWebSocketClient(handler, websocketSubProtocol)
+	client, err := NewDefaultWebSocketClient(handler)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -179,7 +178,7 @@ func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject
 	return client, response, nil
 }
 
-func NewWebSocketClientAndConnectWithContext(ctx context.Context, request *Request, runtimeObject *RuntimeObject, websocketSubProtocol *string) (*DefaultWebSocketClient, *Response, error) {
+func NewWebSocketClientAndConnectWithContext(ctx context.Context, request *Request, runtimeObject *RuntimeObject) (*DefaultWebSocketClient, *Response, error) {
 	if runtimeObject == nil {
 		return nil, nil, errors.New("runtimeObject cannot be nil")
 	}
@@ -195,7 +194,7 @@ func NewWebSocketClientAndConnectWithContext(ctx context.Context, request *Reque
 		return nil, nil, errors.New("WebSocketHandler is required: please set it in runtimeObject.WebSocketHandler")
 	}
 
-	client, err := NewDefaultWebSocketClient(handler, websocketSubProtocol)
+	client, err := NewDefaultWebSocketClient(handler)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -306,6 +305,8 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 
 	c.updateTimeoutConfig(runtimeObject)
 
+	c.websocketSubProtocol = GetWebsocketSubProtocol(runtimeObject)
+
 	atomic.StoreInt32(&c.state, 1) // connecting
 
 	// Create a cancellable context for this connection
@@ -368,7 +369,6 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 		}
 	}
 
-	// Set subprotocol in handshake header if specified
 	if c.websocketSubProtocol != nil && StringValue(c.websocketSubProtocol) != "" {
 		header.Set("Sec-WebSocket-Protocol", StringValue(c.websocketSubProtocol))
 	}

@@ -126,6 +126,16 @@ func GetWebSocketHandler(runtime interface{}) interface{} {
 	return nil
 }
 
+func GetWebsocketSubProtocol(runtime interface{}) *string {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeObject); ok {
+		return rt.WebsocketSubProtocol
+	}
+	return nil
+}
+
 var debugLog = debug.Init("dara")
 
 type HttpRequest interface {
@@ -214,7 +224,8 @@ type RuntimeObject struct {
 	WebSocketMaxReconnectTimes *int        `json:"webSocketMaxReconnectTimes" xml:"webSocketMaxReconnectTimes"`
 	WebSocketWriteTimeout      *int        `json:"webSocketWriteTimeout" xml:"webSocketWriteTimeout"`
 	WebSocketHandshakeTimeout  *int        `json:"webSocketHandshakeTimeout" xml:"webSocketHandshakeTimeout"`
-	WebSocketHandler           interface{} `json:"-" xml:"-"` // WebSocket handler (not serialized)
+	WebSocketHandler           interface{} `json:"-" xml:"-"`                                                           // WebSocket handler (not serialized)
+	WebsocketSubProtocol       *string     `json:"websocketSubProtocol,omitempty" xml:"websocketSubProtocol,omitempty"` // WebSocket sub-protocol (awap or general)
 }
 
 func (r *RuntimeObject) getClientTag(domain string) string {
@@ -271,6 +282,9 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 	}
 	if runtime["webSocketHandler"] != nil {
 		runtimeObject.WebSocketHandler = runtime["webSocketHandler"]
+	}
+	if runtime["websocketSubProtocol"] != nil {
+		runtimeObject.WebsocketSubProtocol = runtime["websocketSubProtocol"].(*string)
 	}
 	return runtimeObject
 }
