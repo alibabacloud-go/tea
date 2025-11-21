@@ -54,16 +54,6 @@ func GetWebSocketPongTimeout(runtime interface{}) *int {
 	return nil
 }
 
-func GetWebSocketMaxMessageSize(runtime interface{}) *int {
-	if runtime == nil {
-		return nil
-	}
-	if rt, ok := runtime.(*RuntimeOptions); ok {
-		return rt.WebSocketMaxMessageSize
-	}
-	return nil
-}
-
 func GetWebSocketEnableReconnect(runtime interface{}) *bool {
 	if runtime == nil {
 		return nil
@@ -218,7 +208,6 @@ type RuntimeObject struct {
 	// WebSocket-specific configuration
 	WebSocketPingInterval      *int        `json:"webSocketPingInterval" xml:"webSocketPingInterval"`
 	WebSocketPongTimeout       *int        `json:"webSocketPongTimeout" xml:"webSocketPongTimeout"`
-	WebSocketMaxMessageSize    *int        `json:"webSocketMaxMessageSize" xml:"webSocketMaxMessageSize"`
 	WebSocketEnableReconnect   *bool       `json:"webSocketEnableReconnect" xml:"webSocketEnableReconnect"`
 	WebSocketReconnectInterval *int        `json:"webSocketReconnectInterval" xml:"webSocketReconnectInterval"`
 	WebSocketMaxReconnectTimes *int        `json:"webSocketMaxReconnectTimes" xml:"webSocketMaxReconnectTimes"`
@@ -258,7 +247,6 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 		// WebSocket-specific configuration
 		WebSocketPingInterval:      TransInterfaceToInt(runtime["webSocketPingInterval"]),
 		WebSocketPongTimeout:       TransInterfaceToInt(runtime["webSocketPongTimeout"]),
-		WebSocketMaxMessageSize:    TransInterfaceToInt(runtime["webSocketMaxMessageSize"]),
 		WebSocketEnableReconnect:   TransInterfaceToBool(runtime["webSocketEnableReconnect"]),
 		WebSocketReconnectInterval: TransInterfaceToInt(runtime["webSocketReconnectInterval"]),
 		WebSocketMaxReconnectTimes: TransInterfaceToInt(runtime["webSocketMaxReconnectTimes"]),

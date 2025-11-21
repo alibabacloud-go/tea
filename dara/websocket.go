@@ -96,7 +96,7 @@ type WebSocketClient interface {
 
 type DefaultWebSocketClient struct {
 	handler      WebSocketHandler // 必需：消息处理器
-	stopChan     chan struct{}    // 必需：控制 goroutine 停止
+	stopChan     chan struct{}    // 必需：内部 goroutine 的快速停止
 	pongReceived chan struct{}    // 必需：ping/pong 机制
 	state        int32            // 必需：连接状态 (0=disconnected, 1=connecting, 2=connected, 3=disconnecting)
 
@@ -110,7 +110,6 @@ type DefaultWebSocketClient struct {
 	// 运行时赋值的字段
 	reconnectCount int          // 重连时递增
 	pingTicker     *time.Ticker // 启动 ping/pong 时创建
-	closed         bool         // 关闭时设置
 
 	// 超时配置（在 Connect 时一次性计算，后续直接使用）
 	pingInterval      time.Duration // Ping 间隔
@@ -263,7 +262,7 @@ func buildWebSocketURL(request *Request) (string, error) {
 func (c *DefaultWebSocketClient) updateTimeoutConfig(runtimeObject *RuntimeObject) {
 	c.pingInterval = time.Duration(IntValue(runtimeObject.WebSocketPingInterval)) * time.Millisecond
 	if c.pingInterval <= 0 {
-		c.pingInterval = 10 * time.Second // Default
+		c.pingInterval = 30 * time.Second // Default value
 	}
 
 	c.reconnectInterval = time.Duration(IntValue(runtimeObject.WebSocketReconnectInterval)) * time.Millisecond
@@ -297,7 +296,7 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 		return nil, errors.New("request cannot be nil")
 	}
 	if runtimeObject == nil {
-		runtimeObject = &RuntimeObject{}
+		return nil, errors.New("runtimeObject cannot be nil")
 	}
 
 	c.request = request
@@ -318,15 +317,26 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 	c.ctx, c.cancel = context.WithCancel(ctx)
 	c.closeMu.Unlock()
 
+	cleanupContext := func() {
+		c.closeMu.Lock()
+		if c.cancel != nil {
+			c.cancel()
+			c.cancel = nil
+		}
+		c.closeMu.Unlock()
+	}
+
 	requestURL, err := buildWebSocketURL(request)
 	if err != nil {
 		atomic.StoreInt32(&c.state, 0) // disconnected
+		cleanupContext()
 		return nil, err
 	}
 
 	u, err := url.Parse(requestURL)
 	if err != nil {
 		atomic.StoreInt32(&c.state, 0) // disconnected
+		cleanupContext()
 		return nil, err
 	}
 
@@ -349,6 +359,7 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 		tlsConfig, err := c.configureTLS(runtimeObject)
 		if err != nil {
 			atomic.StoreInt32(&c.state, 0) // disconnected
+			cleanupContext()
 			return nil, err
 		}
 		dialer.TLSClientConfig = tlsConfig
@@ -357,6 +368,7 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 	// Configure proxy and network dialer (Priority: SOCKS5 > HTTP/HTTPS proxy)
 	if err := c.configureProxy(&dialer, u, runtimeObject, request, connectTimeout); err != nil {
 		atomic.StoreInt32(&c.state, 0) // disconnected
+		cleanupContext()
 		return nil, err
 	}
 
@@ -391,6 +403,7 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 				debugLog("  %s: %v", k, v)
 			}
 		}
+		cleanupContext()
 		return nil, err
 	}
 
@@ -428,6 +441,13 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 	}
 
 	if err := c.handler.AfterConnectionEstablished(c.session); err != nil {
+		// Cleanup connection and context on handler error
+		if c.conn != nil {
+			c.conn.Close()
+			c.conn = nil
+		}
+		atomic.StoreInt32(&c.state, 0) // disconnected
+		cleanupContext()
 		return nil, err
 	}
 
@@ -440,11 +460,17 @@ func (c *DefaultWebSocketClient) Disconnect() error {
 }
 
 func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
-	c.closeMu.Lock()
-	defer c.closeMu.Unlock()
-
-	if c.closed {
-		return nil
+	// state == 0 means disconnected
+	currentState := atomic.LoadInt32(&c.state)
+	if currentState == 0 {
+		c.closeMu.Lock()
+		hasCancel := c.cancel != nil
+		c.closeMu.Unlock()
+		// no cancel function, it means never connected or already fully closed
+		if !hasCancel {
+			return nil
+		}
+		// If state is 0 but cancel exists, try to cancel and clean up, but don't error if already done
 	}
 
 	atomic.StoreInt32(&c.state, 3) // disconnecting
@@ -455,7 +481,7 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 	// This allows goroutines to exit gracefully
 	select {
 	case <-c.stopChan:
-		// Already closed, don't close again
+		// Already closed, don't close againq
 	default:
 		close(c.stopChan)
 	}
@@ -471,6 +497,7 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 	}
 
 	// Wait for all goroutines to finish (with timeout to avoid deadlock)
+	// This is done OUTSIDE the lock to avoid blocking other operations
 	done := make(chan struct{})
 	go func() {
 		c.wg.Wait()
@@ -490,13 +517,14 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 	}
 
 	atomic.StoreInt32(&c.state, 0) // disconnected
-	c.closed = true
 
-	// Cancel context to stop any ongoing reconnect operations
+	// Cancel context (with lock)
+	c.closeMu.Lock()
 	if c.cancel != nil {
 		c.cancel()
 		c.cancel = nil
 	}
+	c.closeMu.Unlock()
 
 	return nil
 }
@@ -510,30 +538,43 @@ func (c *DefaultWebSocketClient) ReconnectGracefully() (*Response, error) {
 	return c.reconnectInternal(true)
 }
 
-// reconnectInternal is the internal implementation for both normal and graceful reconnection
 // graceful: true for graceful reconnection (uses session ID), false for normal reconnection (doesn't use session ID)
 func (c *DefaultWebSocketClient) reconnectInternal(graceful bool) (*Response, error) {
+	// Use minimal lock to check conditions and prevent concurrent reconnection
 	c.reconnectMu.Lock()
-	defer c.reconnectMu.Unlock()
 
-	// Check if already connected (avoid unnecessary reconnection)
-	if c.IsConnected() {
-		debugLog("[WebSocket] Already connected, skipping reconnect")
+	// For normal reconnection, skip if already connected
+	// For graceful reconnection (server-initiated), allow reconnection even if connected
+	if !graceful && c.IsConnected() {
+		c.reconnectMu.Unlock()
+		debugLog("[WebSocket] Already connected, skipping normal reconnect")
 		return nil, errors.New("already connected")
 	}
 
 	// Check if context is already cancelled (client might be closing)
+	c.reconnectMu.Unlock()
+
+	// Read ctx with proper lock
+	c.closeMu.Lock()
+	ctx := c.ctx
+	c.closeMu.Unlock()
+
 	select {
-	case <-c.ctx.Done():
-		return nil, c.ctx.Err()
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	default:
 	}
 
-	if c.runtimeObject == nil || !BoolValue(c.runtimeObject.WebSocketEnableReconnect) {
+	// Re-acquire lock for state changes
+	c.reconnectMu.Lock()
+
+	if !BoolValue(c.runtimeObject.WebSocketEnableReconnect) {
+		c.reconnectMu.Unlock()
 		return nil, errors.New("reconnect is disabled")
 	}
 
 	if c.reconnectCount >= c.maxReconnectTimes {
+		c.reconnectMu.Unlock()
 		return nil, fmt.Errorf("max reconnect times reached: %d", c.maxReconnectTimes)
 	}
 
@@ -543,38 +584,23 @@ func (c *DefaultWebSocketClient) reconnectInternal(graceful bool) (*Response, er
 		if c.session != nil && c.session.SessionID != "" {
 			previousSessionID = c.session.SessionID
 		} else {
+			c.reconnectMu.Unlock()
 			return nil, errors.New("graceful reconnection requires existing session ID")
 		}
 	}
 
-	// Clean up resources before reconnecting
 	c.cleanupResources()
 
-	c.closed = false
+	// Reset state for reconnection (state will be set to connecting in Connect())
 	c.stopChan = make(chan struct{})
 	c.reconnectCount++
 
-	// Use context-aware sleep to allow cancellation during reconnect interval
-	select {
-	case <-c.ctx.Done():
-		return nil, c.ctx.Err()
-	case <-time.After(c.reconnectInterval):
-		// Continue with reconnect
-	}
-
-	// Check context again before attempting connection
-	select {
-	case <-c.ctx.Done():
-		return nil, c.ctx.Err()
-	default:
-	}
-
 	if c.request == nil {
+		c.reconnectMu.Unlock()
 		return nil, errors.New("request is nil, cannot reconnect")
 	}
 
 	// For graceful reconnection, add previous session ID to request headers
-	// For normal reconnection, don't add session ID (or remove it if exists)
 	if graceful && previousSessionID != "" {
 		if c.request.Headers == nil {
 			c.request.Headers = make(map[string]*string)
@@ -582,16 +608,49 @@ func (c *DefaultWebSocketClient) reconnectInternal(graceful bool) (*Response, er
 		c.request.Headers["X-Acs-Ws-Session-Id"] = String(previousSessionID)
 		debugLog("[WebSocket] Graceful reconnection with session ID: %s", previousSessionID)
 	} else {
-		// Normal reconnection: remove session ID header if exists (to start fresh)
 		if c.request.Headers != nil {
 			delete(c.request.Headers, "X-Acs-Ws-Session-Id")
 		}
 		debugLog("[WebSocket] Normal reconnection (without session ID)")
 	}
 
-	result, err := c.Connect(c.ctx, c.request, c.runtimeObject)
+	reconnectRequest := c.request
+	reconnectRuntime := c.runtimeObject
+
+	// Release lock before network I/O to avoid blocking other operations
+	c.reconnectMu.Unlock()
+
+	c.closeMu.Lock()
+	waitCtx := c.ctx
+	c.closeMu.Unlock()
+
+	// Use context-aware sleep to allow cancellation during reconnect interval
+	// time.sleep is a blocking operation, and context cancellation is not supported
+	select {
+	case <-waitCtx.Done():
+		// Context was cancelled during wait, return error
+		return nil, waitCtx.Err()
+	case <-time.After(c.reconnectInterval):
+		// Wait completed, continue with reconnect
+	}
+
+	c.closeMu.Lock()
+	reconnectCtx := c.ctx
+	c.closeMu.Unlock()
+
+	// Check context before attempting connection
+	select {
+	case <-reconnectCtx.Done():
+		return nil, reconnectCtx.Err()
+	default:
+	}
+
+	result, err := c.Connect(reconnectCtx, reconnectRequest, reconnectRuntime)
+
 	if err == nil {
+		c.reconnectMu.Lock()
 		c.reconnectCount = 0 // Reset on success
+		c.reconnectMu.Unlock()
 	}
 
 	return result, err
@@ -613,14 +672,13 @@ func (c *DefaultWebSocketClient) cleanupResources() {
 		close(c.stopChan)
 	}
 
-	// Close connection (this will cause ReadMessage to return error)
 	if c.conn != nil {
 		deadline := time.Now().Add(time.Second)
 		c.conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseGoingAway, "Reconnecting"),
 			deadline)
 		c.conn.Close()
-		c.conn = nil // Clear reference
+		c.conn = nil
 	}
 
 	// Wait for all goroutines to finish (with timeout to avoid deadlock)
@@ -638,9 +696,7 @@ func (c *DefaultWebSocketClient) cleanupResources() {
 		debugLog("[WebSocket] Warning: timeout waiting for goroutines to finish during cleanup")
 	}
 
-	// Clear session (will be recreated on successful reconnect)
 	c.session = nil
-
 	atomic.StoreInt32(&c.state, 0) // disconnected
 }
 
@@ -710,7 +766,6 @@ func (c *DefaultWebSocketClient) SendAwapRequestWithResponse(msgID string, messa
 		close(responseChan)
 	}()
 
-	// 发送消息
 	err := c.SendText(messageText)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
@@ -718,9 +773,8 @@ func (c *DefaultWebSocketClient) SendAwapRequestWithResponse(msgID string, messa
 
 	debugLog("[AWAP Request] Sent request with ID: %s, waiting for response...", msgID)
 
-	// 等待响应（带超时）
 	if timeout <= 0 {
-		timeout = 30 * time.Second // 默认超时
+		timeout = 30 * time.Second
 	}
 
 	select {
@@ -941,7 +995,6 @@ func (c *DefaultWebSocketClient) configureNetDialer(
 }
 
 func (c *DefaultWebSocketClient) startMessageHandlers() {
-	// Read messages from WebSocket
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -971,7 +1024,6 @@ func (c *DefaultWebSocketClient) readMessages() {
 			return
 		}
 
-		// Set read deadline
 		if c.readTimeout > 0 {
 			c.conn.SetReadDeadline(time.Now().Add(c.readTimeout))
 		}
@@ -985,10 +1037,9 @@ func (c *DefaultWebSocketClient) readMessages() {
 			default:
 			}
 
-			// Connection closed or other error
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				if c.session != nil {
-					c.handler.HandleError(c.session, err)
+					c.handler.HandleError(c.session, err) // might be already disconnected
 				}
 			}
 
@@ -1020,21 +1071,20 @@ func (c *DefaultWebSocketClient) readMessages() {
 			continue
 		}
 
-		if c.handleReconnectMessage(messageType, msg) {
+		if c.processReconnectMessage(messageType, msg) {
 			return
 		}
 
-		// Directly route based on subprotocol instead of type assertion detection
-		handled := c.handleMessageBySubProtocol(messageType, msg)
+		handled := c.routeMessageBySubProtocol(messageType, msg)
 		if !handled {
-			c.handleRawMessageFallback(msg)
+			c.processRawMessageFallback(msg)
 		}
 	}
 }
 
-// handleReconnectMessage checks for RECONNECT control message and triggers graceful reconnection
-// Returns true if RECONNECT message was handled (readMessages should return)
-func (c *DefaultWebSocketClient) handleReconnectMessage(messageType int, msg *WebSocketMessage) bool {
+// processReconnectMessage checks for RECONNECT control message and triggers graceful reconnection
+// Returns true if RECONNECT message was processed (readMessages should return)
+func (c *DefaultWebSocketClient) processReconnectMessage(messageType int, msg *WebSocketMessage) bool {
 	if messageType != websocket.TextMessage {
 		return false
 	}
@@ -1062,9 +1112,8 @@ func (c *DefaultWebSocketClient) handleReconnectMessage(messageType int, msg *We
 	return true
 }
 
-// handleMessageBySubProtocol routes messages based on websocketSubProtocol
-// Returns true if message was handled, false otherwise
-func (c *DefaultWebSocketClient) handleMessageBySubProtocol(messageType int, msg *WebSocketMessage) bool {
+// Returns true if message was processed, false otherwise
+func (c *DefaultWebSocketClient) routeMessageBySubProtocol(messageType int, msg *WebSocketMessage) bool {
 	subProtocol := ""
 	if c.websocketSubProtocol != nil {
 		subProtocol = strings.ToLower(StringValue(c.websocketSubProtocol))
@@ -1072,21 +1121,22 @@ func (c *DefaultWebSocketClient) handleMessageBySubProtocol(messageType int, msg
 
 	switch subProtocol {
 	case WebSocketSubProtocolAWAP:
-		return c.handleAwapMessage(messageType, msg)
+		return c.processAwapMessage(messageType, msg)
 	case WebSocketSubProtocolGeneral:
-		return c.handleGeneralMessage(messageType, msg)
+		return c.processGeneralMessage(messageType, msg)
 	default:
 		// No subprotocol specified, fall back to type assertion detection for backward compatibility
-		handled := c.handleAwapMessage(messageType, msg)
+		handled := c.processAwapMessage(messageType, msg)
 		if !handled {
-			handled = c.handleGeneralMessage(messageType, msg)
+			handled = c.processGeneralMessage(messageType, msg)
 		}
 		return handled
 	}
 }
 
-// Returns true if message was handled, false otherwise
-func (c *DefaultWebSocketClient) handleAwapMessage(messageType int, msg *WebSocketMessage) bool {
+// processAwapMessage processes AWAP protocol messages and routes them to the appropriate handler
+// Returns true if message was processed, false otherwise
+func (c *DefaultWebSocketClient) processAwapMessage(messageType int, msg *WebSocketMessage) bool {
 	awapHandler, ok := c.handler.(AwapWebSocketHandler)
 	if !ok {
 		return false
@@ -1130,7 +1180,9 @@ func (c *DefaultWebSocketClient) handleAwapMessage(messageType int, msg *WebSock
 	return true
 }
 
-func (c *DefaultWebSocketClient) handleGeneralMessage(messageType int, msg *WebSocketMessage) bool {
+// processGeneralMessage processes General protocol messages and routes them to the appropriate handler
+// Returns true if message was processed, false otherwise
+func (c *DefaultWebSocketClient) processGeneralMessage(messageType int, msg *WebSocketMessage) bool {
 	generalHandler, ok := c.handler.(GeneralWebSocketHandler)
 	if !ok {
 		return false
@@ -1186,7 +1238,8 @@ func (c *DefaultWebSocketClient) handleGeneralMessage(messageType int, msg *WebS
 	return false
 }
 
-func (c *DefaultWebSocketClient) handleRawMessageFallback(msg *WebSocketMessage) {
+// processRawMessageFallback processes raw messages as a fallback when subprotocol-specific processing fails
+func (c *DefaultWebSocketClient) processRawMessageFallback(msg *WebSocketMessage) {
 	if err := c.handler.HandleRawMessage(c.session, msg); err != nil {
 		debugLog("[WebSocket] HandleRawMessage error: %v", err)
 		c.handler.HandleError(c.session, err)
