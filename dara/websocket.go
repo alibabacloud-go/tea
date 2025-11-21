@@ -1075,10 +1075,7 @@ func (c *DefaultWebSocketClient) readMessages() {
 			return
 		}
 
-		handled := c.routeMessageBySubProtocol(messageType, msg)
-		if !handled {
-			c.processRawMessageFallback(msg)
-		}
+		c.routeMessageBySubProtocol(messageType, msg)
 	}
 }
 
@@ -1108,13 +1105,11 @@ func (c *DefaultWebSocketClient) processReconnectMessage(messageType int, msg *W
 				c.handler.HandleError(c.session, err)
 			}
 		}
-
 	}()
 	return true
 }
 
-// Returns true if message was processed, false otherwise
-func (c *DefaultWebSocketClient) routeMessageBySubProtocol(messageType int, msg *WebSocketMessage) bool {
+func (c *DefaultWebSocketClient) routeMessageBySubProtocol(messageType int, msg *WebSocketMessage) {
 	subProtocol := ""
 	if c.websocketSubProtocol != nil {
 		subProtocol = strings.ToLower(StringValue(c.websocketSubProtocol))
@@ -1122,16 +1117,15 @@ func (c *DefaultWebSocketClient) routeMessageBySubProtocol(messageType int, msg 
 
 	switch subProtocol {
 	case WebSocketSubProtocolAWAP:
-		return c.processAwapMessage(messageType, msg)
+		c.processAwapMessage(messageType, msg)
 	case WebSocketSubProtocolGeneral:
-		return c.processGeneralMessage(messageType, msg)
+		c.processGeneralMessage(messageType, msg)
 	default:
-		// No subprotocol specified, fall back to type assertion detection for backward compatibility
-		handled := c.processAwapMessage(messageType, msg)
-		if !handled {
-			handled = c.processGeneralMessage(messageType, msg)
+		debugLog("[WebSocket] Unknown subprotocol: %s, calling HandleRawMessage", subProtocol)
+		if err := c.handler.HandleRawMessage(c.session, msg); err != nil {
+			debugLog("[WebSocket] HandleRawMessage error: %v for subprotocol: %s", err, subProtocol)
+			c.handler.HandleError(c.session, err)
 		}
-		return handled
 	}
 }
 
@@ -1163,21 +1157,20 @@ func (c *DefaultWebSocketClient) processAwapMessage(messageType int, msg *WebSoc
 		return true
 	}
 
-	if err := awapHandler.HandleAwapMessage(c.session, awapMsg); err != nil {
+	// Try HandleAwapMessage first
+	// If it returns ErrUseRawMessage, fall back to HandleRawMessage
+	err = awapHandler.HandleAwapMessage(c.session, awapMsg)
+	if err == ErrUseRawMessage {
+		debugLog("[WebSocket] HandleAwapMessage returned ErrUseRawMessage, using HandleRawMessage")
+		if rawErr := c.handler.HandleRawMessage(c.session, msg); rawErr != nil {
+			debugLog("[WebSocket] HandleRawMessage error: %v", rawErr)
+			c.handler.HandleError(c.session, rawErr)
+		}
+	} else if err != nil {
+		// HandleAwapMessage returned an error (not ErrUseRawMessage)
 		debugLog("[WebSocket] HandleAwapMessage error: %v", err)
 		c.handler.HandleError(c.session, err)
 	}
-
-	if hasCustomHandleAwapIncomingMessage(awapHandler) {
-		incoming := &AwapIncomingMessage{
-			AwapMessage: *awapMsg,
-			RawPayload:  msg.Payload,
-		}
-		if err := awapHandler.HandleAwapIncomingMessage(c.session, incoming); err != nil {
-			debugLog("[WebSocket] HandleAwapIncomingMessage error: %v", err)
-		}
-	}
-
 	return true
 }
 
@@ -1189,62 +1182,29 @@ func (c *DefaultWebSocketClient) processGeneralMessage(messageType int, msg *Web
 		return false
 	}
 
-	if messageType == websocket.TextMessage {
-		genMsg, err := ParseGeneralMessage(msg)
-		if err != nil {
-			return false
-		}
-
-		debugLog("[WebSocket] General handler detected, calling protocol-specific methods")
-
-		if err := generalHandler.HandleGeneralTextMessage(c.session, genMsg); err != nil {
-			debugLog("[WebSocket] HandleGeneralTextMessage error: %v", err)
-			c.handler.HandleError(c.session, err)
-		}
-
-		if hasCustomHandleGeneralIncomingMessage(generalHandler) {
-			incoming := &GeneralIncomingMessage{
-				Body:       genMsg.Body,
-				RawPayload: msg.Payload,
-				IsBinary:   false,
-			}
-			if err := generalHandler.HandleGeneralIncomingMessage(c.session, incoming); err != nil {
-				debugLog("[WebSocket] HandleGeneralIncomingMessage error: %v", err)
-			}
-		}
-
-		return true
-	} else if messageType == websocket.BinaryMessage {
-		debugLog("[WebSocket] General handler detected, calling binary message handler")
-
-		if err := generalHandler.HandleGeneralBinaryMessage(c.session, msg.Payload); err != nil {
-			debugLog("[WebSocket] HandleGeneralBinaryMessage error: %v", err)
-			c.handler.HandleError(c.session, err)
-		}
-
-		if hasCustomHandleGeneralIncomingMessage(generalHandler) {
-			incoming := &GeneralIncomingMessage{
-				Body:       nil,
-				RawPayload: msg.Payload,
-				IsBinary:   true,
-			}
-			if err := generalHandler.HandleGeneralIncomingMessage(c.session, incoming); err != nil {
-				debugLog("[WebSocket] HandleGeneralIncomingMessage error: %v", err)
-			}
-		}
-
-		return true
+	generalMsg, err := ParseGeneralMessage(msg)
+	if err != nil {
+		return false
 	}
 
-	return false
-}
+	debugLog("[WebSocket] General handler detected, calling protocol-specific methods")
 
-// processRawMessageFallback processes raw messages as a fallback when subprotocol-specific processing fails
-func (c *DefaultWebSocketClient) processRawMessageFallback(msg *WebSocketMessage) {
-	if err := c.handler.HandleRawMessage(c.session, msg); err != nil {
-		debugLog("[WebSocket] HandleRawMessage error: %v", err)
+	// Try HandleGeneralMessage first
+	// If it returns ErrUseRawMessage, fall back to HandleRawMessage
+	err = generalHandler.HandleGeneralMessage(c.session, generalMsg)
+	if err == ErrUseRawMessage {
+		// User wants to use HandleRawMessage instead
+		debugLog("[WebSocket] HandleGeneralMessage returned ErrUseRawMessage, using HandleRawMessage")
+		if rawErr := c.handler.HandleRawMessage(c.session, msg); rawErr != nil {
+			debugLog("[WebSocket] HandleRawMessage error: %v", rawErr)
+			c.handler.HandleError(c.session, rawErr)
+		}
+	} else if err != nil {
+		// HandleGeneralMessage returned an error (not ErrUseRawMessage)
+		debugLog("[WebSocket] HandleGeneralMessage error: %v", err)
 		c.handler.HandleError(c.session, err)
 	}
+	return true
 }
 
 func (c *DefaultWebSocketClient) startPingPong() {

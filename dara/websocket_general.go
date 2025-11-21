@@ -2,40 +2,24 @@ package dara
 
 import (
 	"encoding/json"
-	"fmt"
-	"reflect"
 )
 
-type GeneralMessageType string
+type GeneralMessageFormat string
 
 const (
-	// Upstream event types (client -> server)
-	GeneralMessageTypeUpstreamDefaultTextEvent   GeneralMessageType = "UpstreamDefaultTextEvent"
-	GeneralMessageTypeUpstreamDefaultBinaryEvent GeneralMessageType = "UpstreamDefaultBinaryEvent"
-
-	// Downstream event types (server -> client)
-	GeneralMessageTypeDownstreamDefaultTextEvent   GeneralMessageType = "DownstreamDefaultTextEvent"
-	GeneralMessageTypeDownstreamDefaultBinaryEvent GeneralMessageType = "DownstreamDefaultBinaryEvent"
+	GeneralMessageFormatText   GeneralMessageFormat = "text"
+	GeneralMessageFormatBinary GeneralMessageFormat = "binary"
 )
 
 type GeneralMessage struct {
-	Body interface{} `json:"body,omitempty"`
-}
-
-type GeneralIncomingMessage struct {
-	Body       interface{}
-	RawPayload []byte
-	IsBinary   bool
+	Body   interface{}          `json:"body,omitempty"`
+	Format GeneralMessageFormat `json:"format,omitempty"`
 }
 
 type GeneralWebSocketHandler interface {
 	WebSocketHandler
 
-	HandleGeneralTextMessage(session *WebSocketSessionInfo, message *GeneralMessage) error
-
-	HandleGeneralBinaryMessage(session *WebSocketSessionInfo, data []byte) error
-
-	HandleGeneralIncomingMessage(session *WebSocketSessionInfo, message *GeneralIncomingMessage) error
+	HandleGeneralMessage(session *WebSocketSessionInfo, message *GeneralMessage) error
 }
 
 type AbstractGeneralWebSocketHandler struct {
@@ -48,7 +32,7 @@ func (h *AbstractGeneralWebSocketHandler) AfterConnectionEstablished(session *We
 
 func (h *AbstractGeneralWebSocketHandler) HandleRawMessage(session *WebSocketSessionInfo, message *WebSocketMessage) error {
 	// This method is only called if:
-	// 1. DefaultWebSocketClient.readMessages() doesn't recognize the handler as GeneralWebSocketHandler, OR
+	// 1. DefaultWebSocketClient.readMessages() doesn't recognize the handler as GeneralWebSocketHandler or AwapWebSocketHandler,
 	// 2. User explicitly overrides this method for custom handling
 	//
 	// In normal General protocol usage, readMessages() will directly call HandleGeneralTextMessage/HandleGeneralBinaryMessage,
@@ -58,53 +42,10 @@ func (h *AbstractGeneralWebSocketHandler) HandleRawMessage(session *WebSocketSes
 	return nil
 }
 
-func (h *AbstractGeneralWebSocketHandler) HandleGeneralTextMessage(session *WebSocketSessionInfo, message *GeneralMessage) error {
-	// Default implementation - can be overridden
-	return nil
-}
-
-func (h *AbstractGeneralWebSocketHandler) HandleGeneralBinaryMessage(session *WebSocketSessionInfo, data []byte) error {
-	// Default implementation - can be overridden
-	return nil
-}
-
-func (h *AbstractGeneralWebSocketHandler) HandleGeneralIncomingMessage(session *WebSocketSessionInfo, message *GeneralIncomingMessage) error {
-	// Default implementation - can be overridden
-	return nil
-}
-
-func hasCustomHandleGeneralIncomingMessage(handler GeneralWebSocketHandler) bool {
-	handlerType := reflect.TypeOf(handler)
-	if handlerType == nil {
-		return false
-	}
-
-	if handlerType.Kind() == reflect.Ptr {
-		handlerType = handlerType.Elem()
-	}
-
-	if handlerType == reflect.TypeOf((*AbstractGeneralWebSocketHandler)(nil)).Elem() {
-		return false
-	}
-
-	defaultHandler := &AbstractGeneralWebSocketHandler{}
-	defaultMethodValue := reflect.ValueOf(defaultHandler).MethodByName("HandleGeneralIncomingMessage")
-
-	handlerValue := reflect.ValueOf(handler)
-	if handlerValue.Kind() == reflect.Ptr && handlerValue.IsNil() {
-		return false
-	}
-	handlerMethodValue := handlerValue.MethodByName("HandleGeneralIncomingMessage")
-
-	if !handlerMethodValue.IsValid() {
-		return false
-	}
-
-	if handlerMethodValue.Pointer() == defaultMethodValue.Pointer() {
-		return false
-	}
-
-	return true
+func (h *AbstractGeneralWebSocketHandler) HandleGeneralMessage(session *WebSocketSessionInfo, message *GeneralMessage) error {
+	// Default implementation returns ErrUseRawMessage to indicate HandleRawMessage should be used
+	// If user overrides this method, they should return nil or their own error (not ErrUseRawMessage)
+	return ErrUseRawMessage
 }
 
 func (h *AbstractGeneralWebSocketHandler) HandleError(session *WebSocketSessionInfo, err error) error {
@@ -124,23 +65,26 @@ func (h *AbstractGeneralWebSocketHandler) SetSupportsPartialMessages(supports bo
 }
 
 func ParseGeneralMessage(message *WebSocketMessage) (*GeneralMessage, error) {
-	if message.Type != WebSocketMessageTypeText {
-		return nil, fmt.Errorf("general text messages must be text format")
-	}
-
-	// Parse the entire JSON payload as the body
-	// The actual message format may contain fields like receiveTime, clientPayload, type, etc.
-	// We parse the entire JSON object and put it in Body field
-	var body interface{}
-	if err := json.Unmarshal(message.Payload, &body); err != nil {
-		// If not JSON, treat the entire payload as string body
+	if message.Type == WebSocketMessageTypeBinary {
 		return &GeneralMessage{
-			Body: string(message.Payload),
+			Body:   message.Payload,
+			Format: GeneralMessageFormatBinary,
 		}, nil
 	}
-
+	// Try to parse the entire JSON payload as the body
+	// For text messages, payload is already a string (UTF-8 encoded bytes)
+	// If JSON parsing fails, return the original bytes as []byte to preserve the data
+	var body interface{}
+	if err := json.Unmarshal(message.Payload, &body); err != nil {
+		return &GeneralMessage{
+			Body:   message.Payload,
+			Format: GeneralMessageFormatText,
+		}, nil
+	}
+	// Successfully parsed as JSON, return the parsed object
 	return &GeneralMessage{
-		Body: body,
+		Body:   body,
+		Format: GeneralMessageFormatText,
 	}, nil
 }
 
