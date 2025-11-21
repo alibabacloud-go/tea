@@ -1083,6 +1083,7 @@ func (c *DefaultWebSocketClient) readMessages() {
 }
 
 // processReconnectMessage checks for RECONNECT control message and triggers graceful reconnection
+// graceful reconnection is a text message without body, and type:RECONNECT in awap message headers
 // Returns true if RECONNECT message was processed (readMessages should return)
 func (c *DefaultWebSocketClient) processReconnectMessage(messageType int, msg *WebSocketMessage) bool {
 	if messageType != websocket.TextMessage {
