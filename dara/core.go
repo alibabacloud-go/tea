@@ -31,7 +31,100 @@ import (
 )
 
 type RuntimeOptions = util.RuntimeOptions
+
 type ExtendsParameters = util.ExtendsParameters
+
+func GetWebSocketPingInterval(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketPingInterval
+	}
+	return nil
+}
+
+func GetWebSocketPongTimeout(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketPongTimeout
+	}
+	return nil
+}
+
+func GetWebSocketEnableReconnect(runtime interface{}) *bool {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketEnableReconnect
+	}
+	return nil
+}
+
+func GetWebSocketReconnectInterval(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketReconnectInterval
+	}
+	return nil
+}
+
+func GetWebSocketMaxReconnectTimes(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketMaxReconnectTimes
+	}
+	return nil
+}
+
+func GetWebSocketWriteTimeout(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketWriteTimeout
+	}
+	return nil
+}
+
+func GetWebSocketHandshakeTimeout(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketHandshakeTimeout
+	}
+	return nil
+}
+
+// GetWebSocketHandler safely extracts WebSocketHandler from runtime
+// Returns the handler as interface{} which can be type-asserted to WebSocketHandler
+func GetWebSocketHandler(runtime interface{}) interface{} {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketHandler
+	}
+	return nil
+}
+
+func GetWebsocketSubProtocol(runtime interface{}) *string {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeObject); ok {
+		return rt.WebsocketSubProtocol
+	}
+	return nil
+}
 
 var debugLog = debug.Init("dara")
 
@@ -83,10 +176,11 @@ type Request struct {
 
 // Response is use d wrap http response
 type Response struct {
-	Body          io.ReadCloser
-	StatusCode    *int
-	StatusMessage *string
-	Headers       map[string]*string
+	Body            io.ReadCloser
+	StatusCode      *int
+	StatusMessage   *string
+	Headers         map[string]*string
+	WebSocketClient *DefaultWebSocketClient
 }
 
 // RuntimeObject is used for converting http configuration
@@ -111,6 +205,18 @@ type RuntimeObject struct {
 	RetryOptions      *RetryOptions          `json:"retryOptions" xml:"retryOptions"`
 	ExtendsParameters *ExtendsParameters     `json:"extendsParameters,omitempty" xml:"extendsParameters,omitempty"`
 	HttpClient
+
+	// WebSocket-specific configuration
+	IsWebSocket                *bool       `json:"isWebSocket" xml:"isWebSocket"`
+	WebSocketPingInterval      *int        `json:"webSocketPingInterval" xml:"webSocketPingInterval"`
+	WebSocketPongTimeout       *int        `json:"webSocketPongTimeout" xml:"webSocketPongTimeout"`
+	WebSocketEnableReconnect   *bool       `json:"webSocketEnableReconnect" xml:"webSocketEnableReconnect"`
+	WebSocketReconnectInterval *int        `json:"webSocketReconnectInterval" xml:"webSocketReconnectInterval"`
+	WebSocketMaxReconnectTimes *int        `json:"webSocketMaxReconnectTimes" xml:"webSocketMaxReconnectTimes"`
+	WebSocketWriteTimeout      *int        `json:"webSocketWriteTimeout" xml:"webSocketWriteTimeout"`
+	WebSocketHandshakeTimeout  *int        `json:"webSocketHandshakeTimeout" xml:"webSocketHandshakeTimeout"`
+	WebSocketHandler           interface{} `json:"-" xml:"-"`                                                           // WebSocket handler (not serialized)
+	WebsocketSubProtocol       *string     `json:"websocketSubProtocol,omitempty" xml:"websocketSubProtocol,omitempty"` // WebSocket sub-protocol (awap or general)
 }
 
 func (r *RuntimeObject) getClientTag(domain string) string {
@@ -140,6 +246,15 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 		Key:            TransInterfaceToString(runtime["key"]),
 		Cert:           TransInterfaceToString(runtime["cert"]),
 		Ca:             TransInterfaceToString(runtime["ca"]),
+		// WebSocket-specific configuration
+		IsWebSocket:                TransInterfaceToBool(runtime["isWebSocket"]),
+		WebSocketPingInterval:      TransInterfaceToInt(runtime["webSocketPingInterval"]),
+		WebSocketPongTimeout:       TransInterfaceToInt(runtime["webSocketPongTimeout"]),
+		WebSocketEnableReconnect:   TransInterfaceToBool(runtime["webSocketEnableReconnect"]),
+		WebSocketReconnectInterval: TransInterfaceToInt(runtime["webSocketReconnectInterval"]),
+		WebSocketMaxReconnectTimes: TransInterfaceToInt(runtime["webSocketMaxReconnectTimes"]),
+		WebSocketWriteTimeout:      TransInterfaceToInt(runtime["webSocketWriteTimeout"]),
+		WebSocketHandshakeTimeout:  TransInterfaceToInt(runtime["webSocketHandshakeTimeout"]),
 	}
 	if runtime["listener"] != nil {
 		runtimeObject.Listener = runtime["listener"].(utils.ProgressListener)
@@ -155,6 +270,12 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 	}
 	if runtime["retryOptions"] != nil {
 		runtimeObject.RetryOptions = runtime["retryOptions"].(*RetryOptions)
+	}
+	if runtime["webSocketHandler"] != nil {
+		runtimeObject.WebSocketHandler = runtime["webSocketHandler"]
+	}
+	if runtime["websocketSubProtocol"] != nil {
+		runtimeObject.WebsocketSubProtocol = runtime["websocketSubProtocol"].(*string)
 	}
 	return runtimeObject
 }
@@ -269,6 +390,12 @@ func DoRequest(request *Request, runtimeObject *RuntimeObject) (response *Respon
 			runtimeObject.Logger.PrintLog(fieldMap, err)
 		}
 	}()
+
+	if runtimeObject.IsWebSocket != nil && *runtimeObject.IsWebSocket {
+		// WebSocket request
+		return newWebSocketClientAndConnect(request, runtimeObject)
+	}
+
 	if request.Method == nil {
 		request.Method = String("GET")
 	}
@@ -388,6 +515,12 @@ func DoRequestWithCtx(ctx context.Context, request *Request, runtimeObject *Runt
 			runtimeObject.Logger.PrintLog(fieldMap, err)
 		}
 	}()
+
+	if runtimeObject.IsWebSocket != nil && *runtimeObject.IsWebSocket {
+		// WebSocket request
+		return newWebSocketClientAndConnect(request, runtimeObject)
+	}
+
 	if request.Method == nil {
 		request.Method = String("GET")
 	}
