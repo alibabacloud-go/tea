@@ -22,46 +22,17 @@ type GeneralWebSocketHandler interface {
 	HandleGeneralMessage(session *WebSocketSessionInfo, message *GeneralMessage) error
 }
 
+// AbstractGeneralWebSocketHandler provides default implementations for GeneralWebSocketHandler interface
+// It embeds AbstractWebSocketHandler for base WebSocketHandler methods
+// Users can embed this struct in their custom General handlers
 type AbstractGeneralWebSocketHandler struct {
-	supportsPartial bool
-}
-
-func (h *AbstractGeneralWebSocketHandler) AfterConnectionEstablished(session *WebSocketSessionInfo) error {
-	return nil
-}
-
-func (h *AbstractGeneralWebSocketHandler) HandleRawMessage(session *WebSocketSessionInfo, message *WebSocketMessage) error {
-	// This method is only called if:
-	// 1. DefaultWebSocketClient.readMessages() doesn't recognize the handler as GeneralWebSocketHandler or AwapWebSocketHandler,
-	// 2. User explicitly overrides this method for custom handling
-	//
-	// In normal General protocol usage, readMessages() will directly call HandleGeneralTextMessage/HandleGeneralBinaryMessage,
-	// so this default implementation won't be called.
-	//
-	// If you need custom protocol handling, override this method in your handler.
-	return nil
+	AbstractWebSocketHandler
 }
 
 func (h *AbstractGeneralWebSocketHandler) HandleGeneralMessage(session *WebSocketSessionInfo, message *GeneralMessage) error {
 	// Default implementation returns ErrUseRawMessage to indicate HandleRawMessage should be used
 	// If user overrides this method, they should return nil or their own error (not ErrUseRawMessage)
 	return ErrUseRawMessage
-}
-
-func (h *AbstractGeneralWebSocketHandler) HandleError(session *WebSocketSessionInfo, err error) error {
-	return nil
-}
-
-func (h *AbstractGeneralWebSocketHandler) AfterConnectionClosed(session *WebSocketSessionInfo, code int, reason string) error {
-	return nil
-}
-
-func (h *AbstractGeneralWebSocketHandler) SupportsPartialMessages() bool {
-	return h.supportsPartial
-}
-
-func (h *AbstractGeneralWebSocketHandler) SetSupportsPartialMessages(supports bool) {
-	h.supportsPartial = supports
 }
 
 func ParseGeneralMessage(message *WebSocketMessage) (*GeneralMessage, error) {

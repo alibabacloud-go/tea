@@ -79,7 +79,26 @@ type WebSocketHandler interface {
 	HandleRawMessage(session *WebSocketSessionInfo, message *WebSocketMessage) error
 	HandleError(session *WebSocketSessionInfo, err error) error
 	AfterConnectionClosed(session *WebSocketSessionInfo, code int, reason string) error
-	SupportsPartialMessages() bool
+}
+
+// AbstractWebSocketHandler provides default implementations for WebSocketHandler interface
+// Users can embed this struct in their custom handlers to avoid implementing all methods
+type AbstractWebSocketHandler struct{}
+
+func (h *AbstractWebSocketHandler) AfterConnectionEstablished(session *WebSocketSessionInfo) error {
+	return nil
+}
+
+func (h *AbstractWebSocketHandler) HandleRawMessage(session *WebSocketSessionInfo, message *WebSocketMessage) error {
+	return nil
+}
+
+func (h *AbstractWebSocketHandler) HandleError(session *WebSocketSessionInfo, err error) error {
+	return nil
+}
+
+func (h *AbstractWebSocketHandler) AfterConnectionClosed(session *WebSocketSessionInfo, code int, reason string) error {
+	return nil
 }
 
 type WebSocketClient interface {

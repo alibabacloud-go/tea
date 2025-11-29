@@ -51,24 +51,11 @@ type AwapWebSocketHandler interface {
 	HandleAwapMessage(session *WebSocketSessionInfo, message *AwapMessage) error
 }
 
+// AbstractAwapWebSocketHandler provides default implementations for AwapWebSocketHandler interface
+// It embeds AbstractWebSocketHandler for base WebSocketHandler methods
+// Users can embed this struct in their custom AWAP handlers
 type AbstractAwapWebSocketHandler struct {
-	supportsPartial bool
-}
-
-func (h *AbstractAwapWebSocketHandler) AfterConnectionEstablished(session *WebSocketSessionInfo) error {
-	return nil
-}
-
-func (h *AbstractAwapWebSocketHandler) HandleRawMessage(session *WebSocketSessionInfo, message *WebSocketMessage) error {
-	// This method is only called if:
-	// 1. DefaultWebSocketClient.readMessages() doesn't recognize the handler as AwapWebSocketHandler, OR GeneralWebSocketHandler
-	// 2. User explicitly overrides this method for custom handling
-	//
-	// In normal AWAP protocol usage, readMessages() will directly call HandleAwapMessage,
-	// so this default implementation won't be called.
-	//
-	// If you need custom protocol handling, override this method in your handler.
-	return nil
+	AbstractWebSocketHandler
 }
 
 // ErrUseRawMessage is a sentinel error that indicates HandleRawMessage should be used instead
@@ -78,22 +65,6 @@ func (h *AbstractAwapWebSocketHandler) HandleAwapMessage(session *WebSocketSessi
 	// Default implementation returns ErrUseRawMessage to indicate HandleRawMessage should be used
 	// If user overrides this method, they should return nil or their own error (not ErrUseRawMessage)
 	return ErrUseRawMessage
-}
-
-func (h *AbstractAwapWebSocketHandler) HandleError(session *WebSocketSessionInfo, err error) error {
-	return nil
-}
-
-func (h *AbstractAwapWebSocketHandler) AfterConnectionClosed(session *WebSocketSessionInfo, code int, reason string) error {
-	return nil
-}
-
-func (h *AbstractAwapWebSocketHandler) SupportsPartialMessages() bool {
-	return h.supportsPartial
-}
-
-func (h *AbstractAwapWebSocketHandler) SetSupportsPartialMessages(supports bool) {
-	h.supportsPartial = supports
 }
 
 // ParseAwapMessage parses a WebSocket message as AWAP format

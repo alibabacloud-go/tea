@@ -41,10 +41,6 @@ func (h *MockWebSocketHandler) AfterConnectionClosed(session *WebSocketSessionIn
 	return nil
 }
 
-func (h *MockWebSocketHandler) SupportsPartialMessages() bool {
-	return false
-}
-
 func TestWebSocketClientCreation(t *testing.T) {
 	handler := &MockWebSocketHandler{}
 
@@ -147,10 +143,6 @@ func TestMockHandler(t *testing.T) {
 	handler.AfterConnectionClosed(session, 1000, "Normal")
 	if !handler.ClosedCalled {
 		t.Error("AfterConnectionClosed was not called")
-	}
-
-	if handler.SupportsPartialMessages() {
-		t.Error("Expected SupportsPartialMessages to return false")
 	}
 }
 
