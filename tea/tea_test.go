@@ -560,8 +560,33 @@ func Test_DoRequest(t *testing.T) {
 			return mockResponse(200, ``, nil)
 		}
 	}
+	// Test socks5 proxy with user:password@host format
 	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@ecs.aliyun.com"
 	runtimeObj["localAddr"] = "127.0.0.1"
+	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
+
+	// Test socks5 proxy with explicit port
+	runtimeObj["socks5Proxy"] = "socks5://someuser:somepassword@ecs.aliyun.com:1080"
+	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
+
+	// Test socks5 proxy without authentication
+	runtimeObj["socks5Proxy"] = "socks5://proxy.example.com:1080"
+	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
+
+	// Test socks5 proxy with IPv6 address
+	runtimeObj["socks5Proxy"] = "socks5://[::1]:1080"
+	resp, err = DoRequest(request, runtimeObj)
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
+
+	// Test socks5 proxy with IPv6 and authentication
+	runtimeObj["socks5Proxy"] = "socks5://user:pass@[2001:db8::1]:1080"
 	resp, err = DoRequest(request, runtimeObj)
 	utils.AssertNil(t, err)
 	utils.AssertEqual(t, "test", StringValue(resp.Headers["tea"]))
