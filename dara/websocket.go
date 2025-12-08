@@ -36,11 +36,6 @@ type WebSocketMessage struct {
 	Timestamp time.Time
 }
 
-type WebSocketCloseFrame struct {
-	Code   int
-	Reason string
-}
-
 type WebSocketSessionInfo struct {
 	SessionID   string // Session ID from server (x-acs-ws-session-id header)
 	RequestID   string // Request ID from server (x-acs-request-id header)
@@ -51,7 +46,6 @@ type WebSocketSessionInfo struct {
 }
 
 // NewWebSocketResponse creates a Response from WebSocket handshake HTTP response
-// Session information should be retrieved from WebSocketClient.GetSession()
 func NewWebSocketResponse(httpResponse *http.Response) *Response {
 	res := &Response{}
 	res.Headers = make(map[string]*string)
@@ -877,7 +871,14 @@ func (c *DefaultWebSocketClient) configureHTTPProxy(
 		return nil // No proxy configured
 	}
 
-	httpProxy, err := getHttpProxy(protocol, host, runtimeObject)
+	proxyProtocol := protocol
+	if protocol == "wss" {
+		proxyProtocol = "https"
+	} else if protocol == "ws" {
+		proxyProtocol = "http"
+	}
+
+	httpProxy, err := getHttpProxy(proxyProtocol, host, runtimeObject)
 	if err != nil {
 		return fmt.Errorf("failed to get HTTP proxy: %w", err)
 	}

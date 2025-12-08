@@ -169,11 +169,9 @@ func TestConvertToWebSocketMessageType(t *testing.T) {
 }
 
 func TestDefaultWebSocketClient_Connect(t *testing.T) {
-	// Create a test WebSocket server
 	server := createTestWebSocketServer(t)
 	defer server.Close()
 
-	// Convert server URL to WebSocket URL
 	wsURL := "ws" + server.URL[4:] // Replace "http" with "ws"
 
 	t.Run("Successful connection", func(t *testing.T) {
@@ -185,11 +183,10 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 		request.Pathname = String(u.Path)
 		request.Headers = make(map[string]*string)
 
-		// Create RuntimeObject (matching DoRequest pattern)
 		runtimeObject := NewRuntimeObject(map[string]interface{}{
 			"connectTimeout":           5000,
 			"readTimeout":              30000,
-			"webSocketPingInterval":    0, // Disable ping for this test
+			"webSocketPingInterval":    0, // Use default value
 			"webSocketEnableReconnect": false,
 		})
 
@@ -199,19 +196,16 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 			t.Fatalf("Failed to create client: %v", err)
 		}
 
-		// Test initial state
 		if client.IsConnected() {
 			t.Error("Client should not be connected initially")
 		}
 
-		// Connect
 		ctx := context.Background()
 		response, err := client.Connect(ctx, request, runtimeObject)
 		if err != nil {
 			t.Fatalf("Connect failed: %v", err)
 		}
 
-		// Verify response
 		if response == nil {
 			t.Error("Response should not be nil")
 		} else {
@@ -224,17 +218,14 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 			}
 		}
 
-		// Verify state
 		if !client.IsConnected() {
 			t.Error("Client should be connected after Connect()")
 		}
 
-		// Verify handler was called
 		if !handler.ConnectedCalled {
 			t.Error("AfterConnectionEstablished should be called")
 		}
 
-		// Verify session was created
 		if client.session == nil {
 			t.Error("Session should be created after connection")
 		}
@@ -243,7 +234,6 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 			t.Error("Session ID should not be empty")
 		}
 
-		// Cleanup
 		client.Disconnect()
 	})
 
@@ -275,7 +265,6 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 			t.Error("Expected response to be nil for invalid URL")
 		}
 
-		// Verify state is disconnected
 		if client.IsConnected() {
 			t.Error("Client should not be connected after failed connection")
 		}
@@ -311,12 +300,10 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 			t.Error("Expected response to be nil for timeout")
 		}
 
-		// Verify state is disconnected
 		if client.IsConnected() {
 			t.Error("Client should not be connected after timeout")
 		}
 
-		// Verify handler was not called
 		if handler.ConnectedCalled {
 			t.Error("AfterConnectionEstablished should not be called on timeout")
 		}
@@ -355,7 +342,6 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 			t.Error("Response should not be nil on successful connection")
 		}
 
-		// Cleanup
 		client.Disconnect()
 	})
 
@@ -389,7 +375,6 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 			t.Error("Expected response to be nil when handler returns error")
 		}
 
-		// Cleanup - connection might still be established even if handler fails
 		client.Disconnect()
 	})
 
@@ -424,10 +409,8 @@ func TestDefaultWebSocketClient_Connect(t *testing.T) {
 			t.Error("Response should not be nil on successful connection")
 		}
 
-		// Wait a bit to ensure ping goroutine starts
 		time.Sleep(100 * time.Millisecond)
 
-		// Cleanup
 		client.Disconnect()
 	})
 }
@@ -494,20 +477,16 @@ func TestWebSocketReconnectWhenAlreadyConnected(t *testing.T) {
 		WebSocketHandler:           handler,
 	}
 
-	// Connect to the server
 	client, _, err := NewWebSocketClientAndConnect(request, runtimeObject)
 	if err != nil {
 		t.Fatalf("Initial connection failed: %v", err)
 	}
 
-	// Verify client is connected
 	if !client.IsConnected() {
 		t.Fatal("Client should be connected")
 	}
 
-	// Try to reconnect while already connected
 	response, err := client.Reconnect()
-	// Reconnect when already connected should return an error indicating skip
 	if err == nil {
 		t.Error("Reconnect should return error when already connected")
 	}
@@ -518,14 +497,171 @@ func TestWebSocketReconnectWhenAlreadyConnected(t *testing.T) {
 		t.Error("Response should be nil when reconnect is skipped")
 	}
 
-	// Verify client is still connected
 	if !client.IsConnected() {
 		t.Error("Client should still be connected after skipped reconnect")
 	}
 
-	// Cleanup
 	client.Close()
 
-	// Wait a bit for cleanup
 	time.Sleep(100 * time.Millisecond)
+}
+
+func TestConfigureTLS(t *testing.T) {
+	client := &DefaultWebSocketClient{}
+
+	t.Run("IgnoreSSL True", func(t *testing.T) {
+		runtime := &RuntimeObject{
+			IgnoreSSL: Bool(true),
+		}
+		tlsConfig, err := client.configureTLS(runtime)
+		if err != nil {
+			t.Fatalf("configureTLS failed: %v", err)
+		}
+		if !tlsConfig.InsecureSkipVerify {
+			t.Error("Expected InsecureSkipVerify to be true")
+		}
+	})
+
+	t.Run("IgnoreSSL False", func(t *testing.T) {
+		runtime := &RuntimeObject{
+			IgnoreSSL: Bool(false),
+		}
+		tlsConfig, err := client.configureTLS(runtime)
+		if err != nil {
+			t.Fatalf("configureTLS failed: %v", err)
+		}
+		if tlsConfig.InsecureSkipVerify {
+			t.Error("Expected InsecureSkipVerify to be false")
+		}
+	})
+}
+
+func TestConfigureHTTPProxy(t *testing.T) {
+	client := &DefaultWebSocketClient{}
+	dialer := &websocket.Dialer{}
+	u, _ := url.Parse("wss://example.com/ws")
+	request := &Request{Headers: make(map[string]*string)}
+
+	t.Run("No Proxy", func(t *testing.T) {
+		runtime := &RuntimeObject{}
+		// Reset dialer to ensure clean state
+		dialer.Proxy = nil
+		err := client.configureHTTPProxy(dialer, u, runtime, request)
+		if err != nil {
+			t.Fatalf("configureHTTPProxy failed: %v", err)
+		}
+		// When no proxy is configured, dialer.Proxy should remain nil
+		// (or be http.ProxyFromEnvironment if environment variables are set)
+	})
+
+	t.Run("HTTP Proxy", func(t *testing.T) {
+		proxyStr := "http://proxy.example.com:8080"
+		runtime := &RuntimeObject{
+			HttpsProxy: String(proxyStr), // For wss scheme
+		}
+		err := client.configureHTTPProxy(dialer, u, runtime, request)
+		if err != nil {
+			t.Fatalf("configureHTTPProxy failed: %v", err)
+		}
+
+		req, _ := http.NewRequest("GET", "wss://example.com", nil)
+		proxyURL, err := dialer.Proxy(req)
+		if err != nil {
+			t.Fatalf("dialer.Proxy failed: %v", err)
+		}
+		if proxyURL == nil {
+			t.Fatalf("Expected proxy URL to be set, got nil")
+		}
+		if proxyURL.String() != proxyStr {
+			t.Errorf("Expected proxy %s, got %s", proxyStr, proxyURL.String())
+		}
+	})
+
+	t.Run("NoProxy Match", func(t *testing.T) {
+		proxyStr := "http://proxy.example.com:8080"
+		runtime := &RuntimeObject{
+			HttpsProxy: String(proxyStr),
+			NoProxy:    String("example.com"),
+		}
+		// Reset dialer
+		dialer.Proxy = nil
+
+		err := client.configureHTTPProxy(dialer, u, runtime, request)
+		if err != nil {
+			t.Fatalf("configureHTTPProxy failed: %v", err)
+		}
+
+		// When NoProxy matches, configureHTTPProxy should not set dialer.Proxy
+		// If dialer.Proxy is nil, that means it wasn't set (which is correct for NoProxy match)
+		// If dialer.Proxy is not nil, we verify it returns nil for the matched host
+		if dialer.Proxy != nil {
+			req, _ := http.NewRequest("GET", "wss://example.com", nil)
+			proxyURL, err := dialer.Proxy(req)
+			if err != nil {
+				t.Fatalf("dialer.Proxy failed: %v", err)
+			}
+			// If NoProxy is working, proxyURL should be nil for example.com
+			if proxyURL != nil {
+				t.Errorf("Expected proxy URL to be nil when NoProxy matches, got %s", proxyURL.String())
+			}
+		}
+		// If dialer.Proxy is nil, that's also correct - it means proxy was not configured
+	})
+
+	t.Run("Proxy Auth", func(t *testing.T) {
+		proxyStr := "http://user:pass@proxy.example.com:8080"
+		runtime := &RuntimeObject{
+			HttpsProxy: String(proxyStr),
+		}
+		request := &Request{Headers: make(map[string]*string)}
+
+		err := client.configureHTTPProxy(dialer, u, runtime, request)
+		if err != nil {
+			t.Fatalf("configureHTTPProxy failed: %v", err)
+		}
+
+		if val, ok := request.Headers["Proxy-Authorization"]; !ok {
+			t.Error("Expected Proxy-Authorization header")
+		} else {
+			// Basic auth for user:pass -> dXNlcjpwYXNz
+			expected := "Basic dXNlcjpwYXNz"
+			if StringValue(val) != expected {
+				t.Errorf("Expected auth header %s, got %s", expected, StringValue(val))
+			}
+		}
+	})
+}
+
+func TestConfigureSOCKS5Proxy(t *testing.T) {
+	client := &DefaultWebSocketClient{}
+	dialer := &websocket.Dialer{}
+	runtime := &RuntimeObject{
+		Socks5Proxy:   String("socks5://user:pass@127.0.0.1:1080"),
+		Socks5NetWork: String("tcp"),
+	}
+	connectTimeout := 5 * time.Second
+
+	err := client.configureSOCKS5Proxy(dialer, runtime, connectTimeout)
+	if err != nil {
+		t.Fatalf("configureSOCKS5Proxy failed: %v", err)
+	}
+
+	if dialer.NetDialContext == nil {
+		t.Error("Expected NetDialContext to be set for SOCKS5 proxy")
+	}
+}
+
+func TestConfigureNetDialer(t *testing.T) {
+	client := &DefaultWebSocketClient{}
+	dialer := &websocket.Dialer{}
+	runtime := &RuntimeObject{
+		LocalAddr: String("127.0.0.1"),
+	}
+	connectTimeout := 5 * time.Second
+
+	client.configureNetDialer(dialer, runtime, connectTimeout)
+
+	if dialer.NetDialContext == nil {
+		t.Error("Expected NetDialContext to be set")
+	}
 }
