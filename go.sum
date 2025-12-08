@@ -1,6 +1,8 @@
 github.com/alibabacloud-go/debug v1.0.0 h1:3eIEQWfay1fB24PQIEzXAswlVJtdQok8f3EVN5VrBnA=
 github.com/alibabacloud-go/debug v1.0.0/go.mod h1:8gfgZCCAC3+SCzjWtY053FrOcd4/qlH6IHTI4QyICOc=
 github.com/alibabacloud-go/tea v1.2.2/go.mod h1:CF3vOzEMAG+bR4WOql8gc2G9H3EkH3ZLAQdpmpXMgwk=
+github.com/alibabacloud-go/tea-utils/v2 v2.0.9 h1:y6pUIlhjxbZl9ObDAcmA1H3c21eaAxADHTDQmBnAIgA=
+github.com/alibabacloud-go/tea-utils/v2 v2.0.9/go.mod h1:qxn986l+q33J5VkialKMqT/TTs3E+U9MJpd001iWQ9I=
 github.com/clbanning/mxj/v2 v2.7.0 h1:WA/La7UGCanFe5NpHF0Q3DNtnCsVoxbPKuyBNHWRyME=
 github.com/clbanning/mxj/v2 v2.7.0/go.mod h1:hNiWqW14h+kc+MdF9C6/YoRfjEJoR3ou6tn/Qo+ve2s=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

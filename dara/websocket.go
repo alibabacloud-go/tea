@@ -29,12 +29,6 @@ const (
 	WebSocketMessageTypeClose
 )
 
-// WebSocket subprotocol constants
-const (
-	WebSocketSubProtocolAWAP    = "awap"
-	WebSocketSubProtocolGeneral = "general"
-)
-
 type WebSocketMessage struct {
 	Type      WebSocketMessageType
 	Payload   []byte
@@ -138,10 +132,6 @@ type DefaultWebSocketClient struct {
 	pongTimeout       time.Duration // Pong 超时
 	maxReconnectTimes int           // 最大重连次数
 
-	// AWAP request-response pattern (pending requests waiting for ACK)
-	pendingRequests   map[string]chan *AwapMessage // messageID -> response channel
-	pendingRequestsMu sync.RWMutex                 // 保护 pendingRequests map
-
 	// 零值可用的字段（sync 类型）
 	reconnectMu          sync.Mutex
 	closeMu              sync.Mutex
@@ -155,11 +145,10 @@ func NewDefaultWebSocketClient(handler WebSocketHandler) (*DefaultWebSocketClien
 	}
 
 	client := &DefaultWebSocketClient{
-		handler:         handler,
-		stopChan:        make(chan struct{}),
-		pongReceived:    make(chan struct{}, 1),
-		state:           0, // disconnected
-		pendingRequests: make(map[string]chan *AwapMessage),
+		handler:      handler,
+		stopChan:     make(chan struct{}),
+		pongReceived: make(chan struct{}, 1),
+		state:        0, // disconnected
 	}
 
 	return client, nil
@@ -755,81 +744,6 @@ func (c *DefaultWebSocketClient) Close() error {
 	return c.disconnect(1000, "Client closed")
 }
 
-// SendAwapRequestWithResponse sends an AWAP request message and waits for response
-// Used for AckRequiredTextEvent that requires acknowledgment from server
-//
-// The message ID must be unique and will be used to match the response.
-// Returns the response message or error if timeout/failure occurs.
-func (c *DefaultWebSocketClient) SendAwapRequestWithResponse(msgID string, messageText string, timeout time.Duration) (*AwapMessage, error) {
-	if msgID == "" {
-		return nil, errors.New("message ID cannot be empty for request-response pattern")
-	}
-
-	if messageText == "" {
-		return nil, errors.New("message text cannot be empty for request-response pattern")
-	}
-
-	// 创建响应 channel
-	responseChan := make(chan *AwapMessage, 1)
-
-	// 注册待处理请求
-	c.pendingRequestsMu.Lock()
-	c.pendingRequests[msgID] = responseChan
-	c.pendingRequestsMu.Unlock()
-
-	// 确保清理
-	defer func() {
-		c.pendingRequestsMu.Lock()
-		delete(c.pendingRequests, msgID)
-		c.pendingRequestsMu.Unlock()
-		close(responseChan)
-	}()
-
-	err := c.SendText(messageText)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send message: %w", err)
-	}
-
-	debugLog("[AWAP Request] Sent request with ID: %s, waiting for response...", msgID)
-
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
-
-	select {
-	case response := <-responseChan:
-		debugLog("[AWAP Request] Received response for ID: %s", msgID)
-		return response, nil
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("request timeout after %v waiting for response to message ID: %s", timeout, msgID)
-	case <-c.ctx.Done():
-		return nil, fmt.Errorf("request cancelled: %w", c.ctx.Err())
-	case <-c.stopChan:
-		return nil, errors.New("client is closing")
-	}
-}
-
-func (c *DefaultWebSocketClient) completeAwapRequest(messageID string, response *AwapMessage) bool {
-	c.pendingRequestsMu.RLock()
-	responseChan, exists := c.pendingRequests[messageID]
-	c.pendingRequestsMu.RUnlock()
-
-	if !exists || responseChan == nil {
-		return false
-	}
-
-	// 尝试发送响应到等待的 channel
-	select {
-	case responseChan <- response:
-		debugLog("[AWAP Request] Completed request for ID: %s", messageID)
-		return true
-	default:
-		// Channel 已满或已关闭
-		debugLog("[AWAP Request] Warning: Failed to send response to channel for ID: %s", messageID)
-		return false
-	}
-}
-
 func (c *DefaultWebSocketClient) configureTLS(runtimeObject *RuntimeObject) (*tls.Config, error) {
 	if BoolValue(runtimeObject.IgnoreSSL) {
 		return &tls.Config{
@@ -1090,140 +1004,11 @@ func (c *DefaultWebSocketClient) readMessages() {
 			continue
 		}
 
-		if c.processReconnectMessage(messageType, msg) {
-			return
-		}
-
-		c.routeMessageBySubProtocol(messageType, msg)
-	}
-}
-
-// processReconnectMessage checks for RECONNECT control message and triggers graceful reconnection
-// graceful reconnection is a text message without body, and type:RECONNECT in awap message headers
-// Returns true if RECONNECT message was processed (readMessages should return)
-func (c *DefaultWebSocketClient) processReconnectMessage(messageType int, msg *WebSocketMessage) bool {
-	if messageType != websocket.TextMessage {
-		return false
-	}
-
-	awapMsg, err := ParseAwapMessage(msg)
-	if err != nil {
-		return false
-	}
-
-	if awapMsg.Type != "RECONNECT" {
-		return false
-	}
-
-	debugLog("[WebSocket] Received RECONNECT control message, initiating graceful reconnection")
-	// Trigger graceful reconnection in a goroutine to avoid blocking message reading
-	go func() {
-		if _, err := c.ReconnectGracefully(); err != nil {
-			debugLog("[WebSocket] Graceful reconnection failed: %v", err)
-			if c.session != nil {
-				c.handler.HandleError(c.session, err)
-			}
-		}
-	}()
-	return true
-}
-
-func (c *DefaultWebSocketClient) routeMessageBySubProtocol(messageType int, msg *WebSocketMessage) {
-	subProtocol := ""
-	if c.websocketSubProtocol != nil {
-		subProtocol = strings.ToLower(StringValue(c.websocketSubProtocol))
-	}
-
-	switch subProtocol {
-	case WebSocketSubProtocolAWAP:
-		c.processAwapMessage(messageType, msg)
-	case WebSocketSubProtocolGeneral:
-		c.processGeneralMessage(messageType, msg)
-	default:
-		debugLog("[WebSocket] Unknown subprotocol: %s, calling HandleRawMessage", subProtocol)
 		if err := c.handler.HandleRawMessage(c.session, msg); err != nil {
-			debugLog("[WebSocket] HandleRawMessage error: %v for subprotocol: %s", err, subProtocol)
+			debugLog("[WebSocket] HandleRawMessage error: %v", err)
 			c.handler.HandleError(c.session, err)
 		}
 	}
-}
-
-// processAwapMessage processes AWAP protocol messages and routes them to the appropriate handler
-// Returns true if message was processed, false otherwise
-func (c *DefaultWebSocketClient) processAwapMessage(messageType int, msg *WebSocketMessage) bool {
-	awapHandler, ok := c.handler.(AwapWebSocketHandler)
-	if !ok {
-		return false
-	}
-
-	awapMsg, err := ParseAwapMessage(msg)
-	if err != nil {
-		return false
-	}
-
-	debugLog("[WebSocket] AWAP handler detected, calling protocol-specific methods")
-
-	var ackID string
-	if awapMsg.Headers != nil {
-		ackID = awapMsg.Headers["ack-id"]
-	}
-
-	// Try to complete pending request
-	if ackID != "" && c.completeAwapRequest(ackID, awapMsg) {
-		// Successfully matched and completed a pending request
-		// Skip normal handler processing for this message
-		debugLog("[WebSocket] Response matched and completed for request ID: %s", ackID)
-		return true
-	}
-
-	// Try HandleAwapMessage first
-	// If it returns ErrUseRawMessage, fall back to HandleRawMessage
-	err = awapHandler.HandleAwapMessage(c.session, awapMsg)
-	if err == ErrUseRawMessage {
-		debugLog("[WebSocket] HandleAwapMessage returned ErrUseRawMessage, using HandleRawMessage")
-		if rawErr := c.handler.HandleRawMessage(c.session, msg); rawErr != nil {
-			debugLog("[WebSocket] HandleRawMessage error: %v", rawErr)
-			c.handler.HandleError(c.session, rawErr)
-		}
-	} else if err != nil {
-		// HandleAwapMessage returned an error (not ErrUseRawMessage)
-		debugLog("[WebSocket] HandleAwapMessage error: %v", err)
-		c.handler.HandleError(c.session, err)
-	}
-	return true
-}
-
-// processGeneralMessage processes General protocol messages and routes them to the appropriate handler
-// Returns true if message was processed, false otherwise
-func (c *DefaultWebSocketClient) processGeneralMessage(messageType int, msg *WebSocketMessage) bool {
-	generalHandler, ok := c.handler.(GeneralWebSocketHandler)
-	if !ok {
-		return false
-	}
-
-	generalMsg, err := ParseGeneralMessage(msg)
-	if err != nil {
-		return false
-	}
-
-	debugLog("[WebSocket] General handler detected, calling protocol-specific methods")
-
-	// Try HandleGeneralMessage first
-	// If it returns ErrUseRawMessage, fall back to HandleRawMessage
-	err = generalHandler.HandleGeneralMessage(c.session, generalMsg)
-	if err == ErrUseRawMessage {
-		// User wants to use HandleRawMessage instead
-		debugLog("[WebSocket] HandleGeneralMessage returned ErrUseRawMessage, using HandleRawMessage")
-		if rawErr := c.handler.HandleRawMessage(c.session, msg); rawErr != nil {
-			debugLog("[WebSocket] HandleRawMessage error: %v", rawErr)
-			c.handler.HandleError(c.session, rawErr)
-		}
-	} else if err != nil {
-		// HandleGeneralMessage returned an error (not ErrUseRawMessage)
-		debugLog("[WebSocket] HandleGeneralMessage error: %v", err)
-		c.handler.HandleError(c.session, err)
-	}
-	return true
 }
 
 func (c *DefaultWebSocketClient) startPingPong() {
