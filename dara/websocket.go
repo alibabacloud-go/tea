@@ -129,6 +129,7 @@ type DefaultWebSocketClient struct {
 	// 零值可用的字段（sync 类型）
 	reconnectMu          sync.Mutex
 	closeMu              sync.Mutex
+	connMu               sync.RWMutex // Protects conn field from data races
 	wg                   sync.WaitGroup
 	websocketSubProtocol *string // 在 Connect 时从 runtimeObject 获取并缓存
 }
@@ -409,7 +410,9 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 		return nil, err
 	}
 
+	c.connMu.Lock()
 	c.conn = conn
+	c.connMu.Unlock()
 	atomic.StoreInt32(&c.state, 2) // connected
 
 	c.setupPongHandler()
@@ -444,10 +447,12 @@ func (c *DefaultWebSocketClient) Connect(ctx context.Context, request *Request, 
 
 	if err := c.handler.AfterConnectionEstablished(c.session); err != nil {
 		// Cleanup connection and context on handler error
+		c.connMu.Lock()
 		if c.conn != nil {
 			c.conn.Close()
 			c.conn = nil
 		}
+		c.connMu.Unlock()
 		atomic.StoreInt32(&c.state, 0) // disconnected
 		cleanupContext()
 		return nil, err
@@ -489,6 +494,7 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 	}
 
 	// Close connection (this will cause ReadMessage to return error)
+	c.connMu.Lock()
 	if c.conn != nil {
 		deadline := time.Now().Add(time.Second)
 		c.conn.WriteControl(websocket.CloseMessage,
@@ -497,6 +503,7 @@ func (c *DefaultWebSocketClient) disconnect(code int, reason string) error {
 		c.conn.Close()
 		c.conn = nil
 	}
+	c.connMu.Unlock()
 
 	// Wait for all goroutines to finish (with timeout to avoid deadlock)
 	// This is done OUTSIDE the lock to avoid blocking other operations
@@ -674,6 +681,7 @@ func (c *DefaultWebSocketClient) cleanupResources() {
 		close(c.stopChan)
 	}
 
+	c.connMu.Lock()
 	if c.conn != nil {
 		deadline := time.Now().Add(time.Second)
 		c.conn.WriteControl(websocket.CloseMessage,
@@ -682,6 +690,7 @@ func (c *DefaultWebSocketClient) cleanupResources() {
 		c.conn.Close()
 		c.conn = nil
 	}
+	c.connMu.Unlock()
 
 	// Wait for all goroutines to finish (with timeout to avoid deadlock)
 	done := make(chan struct{})
@@ -711,11 +720,18 @@ func (c *DefaultWebSocketClient) SendText(text string) error {
 		return errors.New("not connected")
 	}
 
-	if c.writeTimeout > 0 {
-		c.conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	c.connMu.RLock()
+	conn := c.conn
+	if conn == nil {
+		c.connMu.RUnlock()
+		return errors.New("connection is nil")
 	}
-
-	return c.conn.WriteMessage(websocket.TextMessage, []byte(text))
+	if c.writeTimeout > 0 {
+		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	}
+	err := conn.WriteMessage(websocket.TextMessage, []byte(text))
+	c.connMu.RUnlock()
+	return err
 }
 
 func (c *DefaultWebSocketClient) SendBinary(data []byte) error {
@@ -723,11 +739,18 @@ func (c *DefaultWebSocketClient) SendBinary(data []byte) error {
 		return errors.New("not connected")
 	}
 
-	if c.writeTimeout > 0 {
-		c.conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	c.connMu.RLock()
+	conn := c.conn
+	if conn == nil {
+		c.connMu.RUnlock()
+		return errors.New("connection is nil")
 	}
-
-	return c.conn.WriteMessage(websocket.BinaryMessage, data)
+	if c.writeTimeout > 0 {
+		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	}
+	err := conn.WriteMessage(websocket.BinaryMessage, data)
+	c.connMu.RUnlock()
+	return err
 }
 
 func (c *DefaultWebSocketClient) GetSessionInfo() *WebSocketSessionInfo {
@@ -954,15 +977,21 @@ func (c *DefaultWebSocketClient) readMessages() {
 		default:
 		}
 
-		if c.conn == nil {
+		// Safely get conn reference with read lock
+		c.connMu.RLock()
+		conn := c.conn
+		if conn == nil {
+			c.connMu.RUnlock()
 			return
 		}
-
+		// Set read deadline while holding lock
 		if c.readTimeout > 0 {
-			c.conn.SetReadDeadline(time.Now().Add(c.readTimeout))
+			conn.SetReadDeadline(time.Now().Add(c.readTimeout))
 		}
+		c.connMu.RUnlock()
 
-		messageType, data, err := c.conn.ReadMessage()
+		// Read message without holding lock (blocking operation)
+		messageType, data, err := conn.ReadMessage()
 		if err != nil {
 			// Check if we should stop (connection might be closed)
 			select {
@@ -1027,12 +1056,16 @@ func (c *DefaultWebSocketClient) startPingPong() {
 			case <-c.stopChan:
 				return
 			case <-c.pingTicker.C:
-				if c.conn == nil {
+				c.connMu.RLock()
+				conn := c.conn
+				if conn == nil {
+					c.connMu.RUnlock()
 					return
 				}
-
 				deadline := time.Now().Add(c.writeTimeout)
-				if err := c.conn.WriteControl(websocket.PingMessage, []byte{}, deadline); err != nil {
+				err := conn.WriteControl(websocket.PingMessage, []byte{}, deadline)
+				c.connMu.RUnlock()
+				if err != nil {
 					if c.session != nil {
 						c.handler.HandleError(c.session, err)
 					}
@@ -1056,10 +1089,13 @@ func (c *DefaultWebSocketClient) startPingPong() {
 
 // This should be called immediately after connection is established to avoid race conditions
 func (c *DefaultWebSocketClient) setupPongHandler() {
-	if c.conn == nil {
+	c.connMu.RLock()
+	conn := c.conn
+	if conn == nil {
+		c.connMu.RUnlock()
 		return
 	}
-	c.conn.SetPongHandler(func(appData string) error {
+	conn.SetPongHandler(func(appData string) error {
 		select {
 		case c.pongReceived <- struct{}{}:
 		default:
@@ -1067,6 +1103,7 @@ func (c *DefaultWebSocketClient) setupPongHandler() {
 		}
 		return nil
 	})
+	c.connMu.RUnlock()
 }
 
 func (c *DefaultWebSocketClient) stopPingPong() {
