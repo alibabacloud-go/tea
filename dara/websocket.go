@@ -45,6 +45,100 @@ type WebSocketSessionInfo struct {
 	Attributes  map[string]interface{}
 }
 
+func GetWebSocketPingInterval(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketPingInterval
+	}
+	return nil
+}
+
+func GetWebSocketPongTimeout(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketPongTimeout
+	}
+	return nil
+}
+
+func GetWebSocketEnableReconnect(runtime interface{}) *bool {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketEnableReconnect
+	}
+	return nil
+}
+
+func GetWebSocketReconnectInterval(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketReconnectInterval
+	}
+	return nil
+}
+
+func GetWebSocketMaxReconnectTimes(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketMaxReconnectTimes
+	}
+	return nil
+}
+
+func GetWebSocketWriteTimeout(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketWriteTimeout
+	}
+	return nil
+}
+
+func GetWebSocketHandshakeTimeout(runtime interface{}) *int {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		return rt.WebSocketHandshakeTimeout
+	}
+	return nil
+}
+
+// GetWebSocketHandler safely extracts WebSocketHandler from runtime
+// Returns the handler as WebSocketHandler interface
+func GetWebSocketHandler(runtime interface{}) WebSocketHandler {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeOptions); ok {
+		if handler, ok := rt.WebSocketHandler.(WebSocketHandler); ok {
+			return handler
+		}
+	}
+	return nil
+}
+
+func GetWebsocketSubProtocol(runtime interface{}) *string {
+	if runtime == nil {
+		return nil
+	}
+	if rt, ok := runtime.(*RuntimeObject); ok {
+		return rt.WebsocketSubProtocol
+	}
+	return nil
+}
+
 // NewWebSocketResponse creates a Response from WebSocket handshake HTTP response
 func NewWebSocketResponse(httpResponse *http.Response) *Response {
 	res := &Response{}
@@ -154,13 +248,7 @@ func NewWebSocketClientAndConnect(request *Request, runtimeObject *RuntimeObject
 		return nil, nil, errors.New("runtimeObject cannot be nil")
 	}
 
-	var handler WebSocketHandler
-	if runtimeObject.WebSocketHandler != nil {
-		if wsHandler, ok := runtimeObject.WebSocketHandler.(WebSocketHandler); ok {
-			handler = wsHandler
-		}
-	}
-
+	handler := runtimeObject.WebSocketHandler
 	if handler == nil {
 		return nil, nil, errors.New("WebSocketHandler is required: please set it in runtimeObject.WebSocketHandler")
 	}
@@ -185,13 +273,7 @@ func NewWebSocketClientAndConnectWithContext(ctx context.Context, request *Reque
 		return nil, nil, errors.New("runtimeObject cannot be nil")
 	}
 
-	var handler WebSocketHandler
-	if runtimeObject.WebSocketHandler != nil {
-		if wsHandler, ok := runtimeObject.WebSocketHandler.(WebSocketHandler); ok {
-			handler = wsHandler
-		}
-	}
-
+	handler := runtimeObject.WebSocketHandler
 	if handler == nil {
 		return nil, nil, errors.New("WebSocketHandler is required: please set it in runtimeObject.WebSocketHandler")
 	}
