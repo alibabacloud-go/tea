@@ -1531,3 +1531,49 @@ func TestForceUint64(t *testing.T) {
 		}
 	}
 }
+
+func Test_getLocalAddr(t *testing.T) {
+	// Test empty address
+	addr := getLocalAddr("")
+	utils.AssertNil(t, addr)
+
+	// Test valid IPv4 address
+	addr = getLocalAddr("127.0.0.1")
+	utils.AssertNotNil(t, addr)
+	utils.AssertEqual(t, "127.0.0.1", addr.IP.String())
+
+	// Test valid IPv6 address
+	addr = getLocalAddr("::1")
+	utils.AssertNotNil(t, addr)
+	utils.AssertEqual(t, "::1", addr.IP.String())
+
+	// Test invalid IP
+	addr = getLocalAddr("invalid")
+	utils.AssertNotNil(t, addr)
+	utils.AssertNil(t, addr.IP)
+}
+
+func Test_setDialContext(t *testing.T) {
+	runtime := &RuntimeObject{
+		ConnectTimeout: Int(1000),
+		LocalAddr:      String("127.0.0.1"),
+	}
+	dialerFunc := setDialContext(runtime)
+	utils.AssertNotNil(t, dialerFunc)
+}
+
+func Test_TimeoutLogic(t *testing.T) {
+	runtime := &RuntimeObject{
+		ConnectTimeout: Int(1000),
+		ReadTimeout:    Int(2000),
+	}
+	
+	req := &Request{
+		Protocol: String("http"),
+		Domain:   String("localhost"),
+	}
+	trans, err := getHttpTransport(req, runtime)
+	utils.AssertNil(t, err)
+	utils.AssertNotNil(t, trans)
+	utils.AssertEqual(t, time.Duration(2000)*time.Millisecond, trans.ResponseHeaderTimeout)
+}
