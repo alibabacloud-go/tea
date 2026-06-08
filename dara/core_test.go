@@ -361,6 +361,7 @@ func TestSDKError(t *testing.T) {
 			"recommend": "https://中文?q=a.b&product=c&requestId=123",
 		},
 		"description": "description",
+		"detail":      "detail message",
 		"accessDeniedDetail": map[string]interface{}{
 			"AuthAction":        "ram:ListUsers",
 			"AuthPrincipalType": "SubUser",
@@ -376,6 +377,8 @@ func TestSDKError(t *testing.T) {
 	utils.AssertEqual(t, "test", err.Error())
 	utils.AssertEqual(t, 404, *err.StatusCode)
 	utils.AssertEqual(t, "description", *err.Description)
+	utils.AssertEqual(t, "detail message", *err.Detail)
+	utils.AssertEqual(t, "detail message", *err.GetDetail())
 	utils.AssertEqual(t, "ImplicitDeny", err.AccessDeniedDetail["NoPermissionType"])
 	utils.AssertEqual(t, 123, err.AccessDeniedDetail["UserId"])
 
@@ -430,6 +433,7 @@ func TestSDKError(t *testing.T) {
 	utils.AssertNotNil(t, err)
 	utils.AssertNotNil(t, err.Data)
 	utils.AssertNil(t, err.StatusCode)
+	utils.AssertNil(t, err.Detail)
 }
 
 func TestSDKErrorCode404(t *testing.T) {
