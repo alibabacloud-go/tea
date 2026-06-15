@@ -221,7 +221,7 @@ func TestShouldRetry(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "Should retry for different exception",
+			name: "Should retry with default max attempts when no condition matches",
 			options: RetryOptions{
 				Retryable: true,
 				RetryCondition: []*RetryCondition{
@@ -232,7 +232,7 @@ func TestShouldRetry(t *testing.T) {
 				RetriesAttempted: 2,
 				Exception:        new(BErr).New(map[string]interface{}{"Code": "B1Err"}),
 			},
-			expected: false,
+			expected: true,
 		},
 		{
 			name: "Should not retry with no retry condition",
@@ -248,6 +248,33 @@ func TestShouldRetry(t *testing.T) {
 			ctx: RetryPolicyContext{
 				RetriesAttempted: 2,
 				Exception:        new(AErr).New(map[string]interface{}{"Code": "B1Err"}),
+			},
+			expected: false,
+		},
+		{
+			name: "Should default zero max attempts to MAX_ATTEMPTS",
+			options: RetryOptions{
+				Retryable:    true,
+				MaxAttempts:  0,
+				RetryCondition: []*RetryCondition{},
+			},
+			ctx: RetryPolicyContext{
+				RetriesAttempted: 2,
+				Exception:        new(BErr).New(map[string]interface{}{"Code": "B1Err"}),
+			},
+			expected: true,
+		},
+		{
+			name: "Should stop retrying after default MAX_ATTEMPTS",
+			options: RetryOptions{
+				Retryable: true,
+				RetryCondition: []*RetryCondition{
+					{MaxAttempts: 0, Exception: []string{"AErr"}, ErrorCode: []string{"A1Err"}},
+				},
+			},
+			ctx: RetryPolicyContext{
+				RetriesAttempted: 3,
+				Exception:        new(AErr).New(map[string]interface{}{"Code": "A1Err"}),
 			},
 			expected: false,
 		},
