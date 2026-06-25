@@ -1039,7 +1039,7 @@ func GetBackoffTime(backoff interface{}, retrytimes *int) *int {
 }
 
 func Sleep(backoffTime int) {
-	sleeptime := time.Duration(backoffTime) * time.Second
+	sleeptime := time.Duration(backoffTime) * time.Millisecond
 	time.Sleep(sleeptime)
 }
 
