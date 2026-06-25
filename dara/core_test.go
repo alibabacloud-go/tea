@@ -663,6 +663,14 @@ func Test_GetBackoffTime(t *testing.T) {
 	utils.AssertEqual(t, true, IntValue(ms) <= 3)
 }
 
+func Test_Sleep(t *testing.T) {
+	start := time.Now()
+	Sleep(1000) // 1000ms = 1s
+	elapsed := time.Since(start)
+	utils.AssertEqual(t, true, elapsed >= 1*time.Second)
+	utils.AssertEqual(t, true, elapsed < 2*time.Second)
+}
+
 type httpClient struct {
 	HttpClient
 	httpClient *http.Client
