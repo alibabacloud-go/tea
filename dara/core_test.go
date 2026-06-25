@@ -1571,7 +1571,7 @@ func Test_TimeoutLogic(t *testing.T) {
 		ConnectTimeout: Int(1000),
 		ReadTimeout:    Int(2000),
 	}
-	
+
 	req := &Request{
 		Protocol: String("http"),
 		Domain:   String("localhost"),
