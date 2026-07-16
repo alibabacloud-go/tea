@@ -377,7 +377,7 @@ func TestRandomBackoffPolicy(t *testing.T) {
 }
 
 func TestExponentialBackoffPolicy(t *testing.T) {
-	// Test case 1
+	// period * 2^retries: period=5, retries=2 → 5*4=20
 	condition1 := NewRetryCondition(map[string]interface{}{
 		"maxAttempts": 3,
 		"exception":   []string{"AErr"},
@@ -401,13 +401,31 @@ func TestExponentialBackoffPolicy(t *testing.T) {
 		}),
 	}
 
-	// Test Delay Time
 	delay := GetBackoffDelay(&options, &context)
-	if delay != 1024 {
-		t.Errorf("Expected backoff delay to be 1024, got %d", delay)
+	if delay != 20 {
+		t.Errorf("Expected backoff delay to be 20, got %d", delay)
 	}
 
-	// Test case 2
+	// period=1000ms must multiply, not enter the exponent
+	condition1b := NewRetryCondition(map[string]interface{}{
+		"maxAttempts": 3,
+		"exception":   []string{"AErr"},
+		"errorCode":   []string{"A1Err"},
+		"backoff": map[string]interface{}{
+			"policy": "Exponential",
+			"period": 1000,
+			"cap":    10000,
+		},
+	})
+	options = RetryOptions{
+		Retryable:      true,
+		RetryCondition: []*RetryCondition{condition1b},
+	}
+	delay = GetBackoffDelay(&options, &context)
+	if delay != 4000 {
+		t.Errorf("Expected backoff delay to be 4000, got %d", delay)
+	}
+
 	condition2 := NewRetryCondition(map[string]interface{}{
 		"maxAttempts": 3,
 		"exception":   []string{"AErr"},
@@ -424,16 +442,14 @@ func TestExponentialBackoffPolicy(t *testing.T) {
 		RetryCondition: []*RetryCondition{condition2},
 	}
 
-	// Test Delay Time
 	delay = GetBackoffDelay(&options, &context)
-	if delay != 10000 {
-		t.Errorf("Expected backoff delay to be 10000, got %d", delay)
+	if delay != 40 {
+		t.Errorf("Expected backoff delay to be 40, got %d", delay)
 	}
 }
 
 func TestEqualJitterBackoff(t *testing.T) {
 	rand.Seed(0) // Seed random for predictable results
-	// Test case 1
 	condition1 := NewRetryCondition(map[string]interface{}{
 		"maxAttempts": 3,
 		"exception":   []string{"AErr"},
@@ -457,20 +473,18 @@ func TestEqualJitterBackoff(t *testing.T) {
 		}),
 	}
 
-	// Test Delay Time
 	delay := GetBackoffDelay(&options, &context)
-	if delay <= 512 || delay >= 1024 {
-		t.Errorf("Expected backoff time in range (512, 1024), got: %d", delay)
+	if delay < 10 || delay > 20 {
+		t.Errorf("Expected backoff time in range [10, 20], got: %d", delay)
 	}
 
-	// Test case 2
 	condition2 := NewRetryCondition(map[string]interface{}{
 		"maxAttempts": 3,
 		"exception":   []string{"AErr"},
 		"errorCode":   []string{"A1Err"},
 		"backoff": map[string]interface{}{
 			"policy": "ExponentialWithEqualJitter",
-			"period": 10,
+			"period": 1000,
 			"cap":    10000,
 		},
 	})
@@ -480,21 +494,19 @@ func TestEqualJitterBackoff(t *testing.T) {
 		RetryCondition: []*RetryCondition{condition2},
 	}
 
-	// Test Delay Time
 	delay = GetBackoffDelay(&options, &context)
-	if delay <= 5000 || delay >= 10000 {
-		t.Errorf("Expected backoff time in range (5000, 10000), got: %d", delay)
+	if delay < 2000 || delay > 4000 {
+		t.Errorf("Expected backoff time in range [2000, 4000], got: %d", delay)
 	}
 }
 
 func TestFullJitterBackoffPolicy(t *testing.T) {
-	// Test case 1
 	condition1 := NewRetryCondition(map[string]interface{}{
 		"maxAttempts": 3,
 		"exception":   []string{"AErr"},
 		"errorCode":   []string{"A1Err"},
 		"backoff": map[string]interface{}{
-			"policy": "fullJitter",
+			"policy": "FullJitter",
 			"period": 5,
 			"cap":    10000,
 		},
@@ -512,10 +524,9 @@ func TestFullJitterBackoffPolicy(t *testing.T) {
 		}),
 	}
 
-	// Test Delay Time
 	delay := GetBackoffDelay(&options, &context)
-	if delay < 0 || delay >= 1024 {
-		t.Errorf("Expected backoff time in range [0, 1024), got: %d", delay)
+	if delay < 0 || delay >= 20 {
+		t.Errorf("Expected backoff time in range [0, 20), got: %d", delay)
 	}
 
 	condition2 := NewRetryCondition(map[string]interface{}{
