@@ -90,6 +90,26 @@ func TestValidateRequired(t *testing.T) {
 	var nilPtr *string
 	err = ValidateRequired(nilPtr, "testField")
 	utils.AssertEqual(t, "testField should be setted", err.Error())
+
+	nilTypes := []interface{}{
+		(*int)(nil), (*int8)(nil), (*int16)(nil), (*int32)(nil), (*int64)(nil),
+		(*uint)(nil), (*uint8)(nil), (*uint16)(nil), (*uint32)(nil), (*uint64)(nil),
+		(*float32)(nil), (*float64)(nil),
+	}
+	for i, v := range nilTypes {
+		err = ValidateRequired(v, "field")
+		if err == nil {
+			t.Errorf("case %d: expected error for nil typed pointer", i)
+		}
+	}
+
+	i, i8, f32, f64 := 1, int8(1), float32(1.0), float64(1.0)
+	validTypes := []interface{}{&i, &i8, &f32, &f64}
+	for _, v := range validTypes {
+		if err := ValidateRequired(v, "field"); err != nil {
+			t.Errorf("expected nil error for valid pointer, got %v", err)
+		}
+	}
 }
 
 func TestValidateMaxLength(t *testing.T) {

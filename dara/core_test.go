@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"reflect"
 	"strconv"
@@ -1588,4 +1589,82 @@ func Test_TimeoutLogic(t *testing.T) {
 	utils.AssertNil(t, err)
 	utils.AssertNotNil(t, trans)
 	utils.AssertEqual(t, time.Duration(2000)*time.Millisecond, trans.ResponseHeaderTimeout)
+}
+
+func Test_daraClient_Call(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	client := &daraClient{
+		httpClient: &http.Client{},
+	}
+	req, err := http.NewRequest("GET", server.URL, nil)
+	utils.AssertNil(t, err)
+
+	resp, err := client.Call(req, nil)
+	utils.AssertNil(t, err)
+	utils.AssertNotNil(t, resp)
+	utils.AssertEqual(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func Test_IsNil(t *testing.T) {
+	utils.AssertEqual(t, true, IsNil(nil))
+
+	var nilStr *string
+	utils.AssertEqual(t, true, IsNil(nilStr))
+
+	var nilSlice []string
+	utils.AssertEqual(t, true, IsNil(nilSlice))
+
+	var nilMap map[string]string
+	utils.AssertEqual(t, true, IsNil(nilMap))
+
+	str := "hello"
+	utils.AssertEqual(t, false, IsNil(&str))
+	utils.AssertEqual(t, false, IsNil(str))
+	// Non-nillable scalars: reflect.Value == Zero is not value-equality, so IsNil(0)/IsNil("") are false.
+	utils.AssertEqual(t, false, IsNil(0))
+	utils.AssertEqual(t, false, IsNil(""))
+	utils.AssertEqual(t, false, IsNil([]string{"a"}))
+	utils.AssertEqual(t, false, IsNil(map[string]string{"a": "b"}))
+}
+
+func Test_BytesFromString(t *testing.T) {
+	utils.AssertEqual(t, []byte("hello"), BytesFromString("hello", "utf8"))
+	utils.AssertEqual(t, []byte("Hello, World!"), BytesFromString("48656c6c6f2c20576f726c6421", "hex"))
+	utils.AssertEqual(t, []byte("Hello, World!"), BytesFromString("SGVsbG8sIFdvcmxkIQ==", "base64"))
+	utils.AssertNil(t, BytesFromString("invalid hex", "hex"))
+	utils.AssertNil(t, BytesFromString("invalid base64", "base64"))
+	utils.AssertNil(t, BytesFromString("hello", "unsupported"))
+}
+
+func Test_DoRequestWithCtxSuccess(t *testing.T) {
+	origTestHookDo := hookDo
+	defer func() { hookDo = origTestHookDo }()
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+			return mockResponse(200, `{"ok":true}`, nil)
+		}
+	}
+
+	request := NewRequest()
+	request.Method = String("GET")
+	request.Protocol = String("http")
+	request.Pathname = String("/api")
+	request.Headers["host"] = String("example.com")
+	request.Query = map[string]*string{"key": String("value")}
+
+	ctx := context.Background()
+	resp, err := DoRequestWithCtx(ctx, request, NewRuntimeObject(runtimeObj))
+	utils.AssertNil(t, err)
+	utils.AssertNotNil(t, resp)
+	utils.AssertEqual(t, 200, IntValue(resp.StatusCode))
+}
+
+func Test_ToStringBytes(t *testing.T) {
+	utils.AssertEqual(t, "hello", ToString([]byte("hello")))
 }

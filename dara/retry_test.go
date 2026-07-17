@@ -600,6 +600,42 @@ func TestFullJitterBackoffPolicy(t *testing.T) {
 
 }
 
+func TestNewRetryOptions(t *testing.T) {
+	options := NewRetryOptions(map[string]interface{}{
+		"retryable":   true,
+		"maxAttempts": 5,
+		"retryCondition": []interface{}{
+			map[string]interface{}{
+				"maxAttempts": 3,
+				"exception":   []string{"AErr"},
+				"errorCode":   []string{"A1"},
+			},
+		},
+		"noRetryCondition": []interface{}{
+			map[string]interface{}{
+				"maxAttempts": 1,
+				"exception":   []string{"BErr"},
+				"errorCode":   []string{"B1"},
+			},
+		},
+	})
+	if options == nil {
+		t.Fatal("expected non-nil RetryOptions")
+	}
+	if !options.Retryable {
+		t.Error("expected Retryable to be true")
+	}
+	if options.MaxAttempts != 5 {
+		t.Errorf("expected MaxAttempts 5, got %d", options.MaxAttempts)
+	}
+	if len(options.RetryCondition) != 1 {
+		t.Errorf("expected 1 retry condition, got %d", len(options.RetryCondition))
+	}
+	if len(options.NoRetryCondition) != 1 {
+		t.Errorf("expected 1 no-retry condition, got %d", len(options.NoRetryCondition))
+	}
+}
+
 func TestRetryAfter(t *testing.T) {
 	condition1 := NewRetryCondition(map[string]interface{}{
 		"maxAttempts": 3,
