@@ -70,6 +70,28 @@ var validateParams = []string{"require", "pattern", "maxLength", "minLength", "m
 
 var clientPool = &sync.Map{}
 
+// Default timeouts when RuntimeObject leaves connect/read timeout unset.
+// Align with tea-python (DEFAULT_CONNECT_TIMEOUT=5000, DEFAULT_READ_TIMEOUT=10000)
+// and Go http.DefaultTransport dial/TLS defaults so requests cannot hang forever.
+const (
+	defaultConnectTimeoutMs = 5000
+	defaultReadTimeoutMs    = 10000
+)
+
+func resolveConnectTimeoutMs(runtime *RuntimeObject) int {
+	if runtime != nil && runtime.ConnectTimeout != nil && IntValue(runtime.ConnectTimeout) > 0 {
+		return IntValue(runtime.ConnectTimeout)
+	}
+	return defaultConnectTimeoutMs
+}
+
+func resolveReadTimeoutMs(runtime *RuntimeObject) int {
+	if runtime != nil && runtime.ReadTimeout != nil && IntValue(runtime.ReadTimeout) > 0 {
+		return IntValue(runtime.ReadTimeout)
+	}
+	return defaultReadTimeoutMs
+}
+
 // Request is used wrap http request
 type Request struct {
 	Protocol *string
@@ -351,7 +373,7 @@ func DoRequest(request *Request, runtimeObject *RuntimeObject) (response *Respon
 		if !defaultClient.ifInit || defaultClient.httpClient.Transport == nil {
 			defaultClient.httpClient.Transport = trans
 		}
-		defaultClient.httpClient.Timeout = time.Duration(IntValue(runtimeObject.ConnectTimeout)+IntValue(runtimeObject.ReadTimeout)) * time.Millisecond
+		defaultClient.httpClient.Timeout = time.Duration(resolveConnectTimeoutMs(runtimeObject)+resolveReadTimeoutMs(runtimeObject)) * time.Millisecond
 		defaultClient.ifInit = true
 		defaultClient.Unlock()
 	}
@@ -470,7 +492,7 @@ func DoRequestWithCtx(ctx context.Context, request *Request, runtimeObject *Runt
 		if !defaultClient.ifInit || defaultClient.httpClient.Transport == nil {
 			defaultClient.httpClient.Transport = trans
 		}
-		defaultClient.httpClient.Timeout = time.Duration(IntValue(runtimeObject.ConnectTimeout)+IntValue(runtimeObject.ReadTimeout)) * time.Millisecond
+		defaultClient.httpClient.Timeout = time.Duration(resolveConnectTimeoutMs(runtimeObject)+resolveReadTimeoutMs(runtimeObject)) * time.Millisecond
 		defaultClient.ifInit = true
 		defaultClient.Unlock()
 	}
@@ -531,8 +553,14 @@ func DoRequestWithCtx(ctx context.Context, request *Request, runtimeObject *Runt
 }
 
 func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, error) {
+	connectTimeoutMs := resolveConnectTimeoutMs(runtime)
+	readTimeoutMs := resolveReadTimeoutMs(runtime)
 	trans := new(http.Transport)
-	trans.ResponseHeaderTimeout = time.Duration(IntValue(runtime.ReadTimeout)) * time.Millisecond
+	trans.ResponseHeaderTimeout = time.Duration(readTimeoutMs) * time.Millisecond
+	// Align with http.DefaultTransport so a zero-value Transport cannot hang forever.
+	trans.TLSHandshakeTimeout = 10 * time.Second
+	trans.ExpectContinueTimeout = 1 * time.Second
+	trans.IdleConnTimeout = 90 * time.Second
 	httpProxy, err := getHttpProxy(StringValue(req.Protocol), StringValue(req.Domain), runtime)
 	if err != nil {
 		return nil, err
@@ -588,7 +616,7 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 			}
 			dialer, err := proxy.SOCKS5(strings.ToLower(StringValue(runtime.Socks5NetWork)), socks5Proxy.Host, auth,
 				&net.Dialer{
-					Timeout:   time.Duration(IntValue(runtime.ConnectTimeout)) * time.Millisecond,
+					Timeout:   time.Duration(connectTimeoutMs) * time.Millisecond,
 					DualStack: true,
 					LocalAddr: getLocalAddr(StringValue(runtime.LocalAddr)),
 				})
@@ -733,7 +761,7 @@ func getLocalAddr(localAddr string) (addr *net.TCPAddr) {
 
 func setDialContext(runtime *RuntimeObject) func(cxt context.Context, net, addr string) (c net.Conn, err error) {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
-		timeout := time.Duration(IntValue(runtime.ConnectTimeout)) * time.Millisecond
+		timeout := time.Duration(resolveConnectTimeoutMs(runtime)) * time.Millisecond
 		dialer := &net.Dialer{
 			Timeout: timeout,
 			Resolver: &net.Resolver{

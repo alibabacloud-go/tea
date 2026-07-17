@@ -1589,3 +1589,84 @@ func Test_TimeoutLogic(t *testing.T) {
 	utils.AssertNotNil(t, trans)
 	utils.AssertEqual(t, time.Duration(2000)*time.Millisecond, trans.ResponseHeaderTimeout)
 }
+
+func Test_DefaultTimeouts(t *testing.T) {
+	utils.AssertEqual(t, defaultConnectTimeoutMs, resolveConnectTimeoutMs(nil))
+	utils.AssertEqual(t, defaultReadTimeoutMs, resolveReadTimeoutMs(nil))
+	utils.AssertEqual(t, defaultConnectTimeoutMs, resolveConnectTimeoutMs(&RuntimeObject{}))
+	utils.AssertEqual(t, defaultReadTimeoutMs, resolveReadTimeoutMs(&RuntimeObject{}))
+	utils.AssertEqual(t, defaultConnectTimeoutMs, resolveConnectTimeoutMs(&RuntimeObject{ConnectTimeout: Int(0)}))
+	utils.AssertEqual(t, defaultReadTimeoutMs, resolveReadTimeoutMs(&RuntimeObject{ReadTimeout: Int(0)}))
+	utils.AssertEqual(t, 3000, resolveConnectTimeoutMs(&RuntimeObject{ConnectTimeout: Int(3000)}))
+	utils.AssertEqual(t, 7000, resolveReadTimeoutMs(&RuntimeObject{ReadTimeout: Int(7000)}))
+
+	req := &Request{
+		Protocol: String("http"),
+		Domain:   String("localhost"),
+		Headers:  map[string]*string{},
+	}
+	trans, err := getHttpTransport(req, &RuntimeObject{})
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, time.Duration(defaultReadTimeoutMs)*time.Millisecond, trans.ResponseHeaderTimeout)
+	utils.AssertEqual(t, 10*time.Second, trans.TLSHandshakeTimeout)
+	utils.AssertEqual(t, 1*time.Second, trans.ExpectContinueTimeout)
+	utils.AssertEqual(t, 90*time.Second, trans.IdleConnTimeout)
+
+	trans, err = getHttpTransport(req, &RuntimeObject{
+		ConnectTimeout: Int(1000),
+		ReadTimeout:    Int(2000),
+		IdleTimeout:    Int(3000),
+	})
+	utils.AssertNil(t, err)
+	utils.AssertEqual(t, time.Duration(2000)*time.Millisecond, trans.ResponseHeaderTimeout)
+	utils.AssertEqual(t, time.Duration(3000)*time.Millisecond, trans.IdleConnTimeout)
+
+	origTestHookDo := hookDo
+	defer func() { hookDo = origTestHookDo }()
+	var capturedClientTimeout time.Duration
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+			tag := (&RuntimeObject{}).getClientTag(req.Host)
+			client := getDaraClient(tag)
+			capturedClientTimeout = client.httpClient.Timeout
+			return mockResponse(200, ``, nil)
+		}
+	}
+	request := NewRequest()
+	request.Headers["host"] = String("timeout-default.example.com")
+	resp, err := DoRequest(request, &RuntimeObject{})
+	utils.AssertNil(t, err)
+	utils.AssertNotNil(t, resp)
+	utils.AssertEqual(t, time.Duration(defaultConnectTimeoutMs+defaultReadTimeoutMs)*time.Millisecond, capturedClientTimeout)
+
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+			tag := (&RuntimeObject{ConnectTimeout: Int(1000), ReadTimeout: Int(2000)}).getClientTag(req.Host)
+			client := getDaraClient(tag)
+			capturedClientTimeout = client.httpClient.Timeout
+			return mockResponse(200, ``, nil)
+		}
+	}
+	request = NewRequest()
+	request.Headers["host"] = String("timeout-explicit.example.com")
+	resp, err = DoRequest(request, &RuntimeObject{ConnectTimeout: Int(1000), ReadTimeout: Int(2000)})
+	utils.AssertNil(t, err)
+	utils.AssertNotNil(t, resp)
+	utils.AssertEqual(t, time.Duration(3000)*time.Millisecond, capturedClientTimeout)
+
+	ctx := context.Background()
+	hookDo = func(fn func(req *http.Request, transport *http.Transport) (*http.Response, error)) func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+		return func(req *http.Request, transport *http.Transport) (*http.Response, error) {
+			tag := (&RuntimeObject{}).getClientTag(req.Host)
+			client := getDaraClient(tag)
+			capturedClientTimeout = client.httpClient.Timeout
+			return mockResponse(200, ``, nil)
+		}
+	}
+	request = NewRequest()
+	request.Headers["host"] = String("timeout-default-ctx.example.com")
+	resp, err = DoRequestWithCtx(ctx, request, &RuntimeObject{})
+	utils.AssertNil(t, err)
+	utils.AssertNotNil(t, resp)
+	utils.AssertEqual(t, time.Duration(defaultConnectTimeoutMs+defaultReadTimeoutMs)*time.Millisecond, capturedClientTimeout)
+}
