@@ -106,6 +106,69 @@ func TestDiff(t *testing.T) {
 	if diffInSeconds != -31*24*60*60 {
 		t.Errorf("Expected %v, got %v", -31*24*60*60, diffInSeconds)
 	}
+
+	if date1.Diff("minutes", date2) != -31*24*60 {
+		t.Errorf("unexpected minutes diff: %v", date1.Diff("minutes", date2))
+	}
+	if date1.Diff("hours", date2) != -31*24 {
+		t.Errorf("unexpected hours diff: %v", date1.Diff("hours", date2))
+	}
+	if date1.Diff("days", date2) != -31 {
+		t.Errorf("unexpected days diff: %v", date1.Diff("days", date2))
+	}
+	if date1.Diff("weeks", date2) != -4 {
+		t.Errorf("unexpected weeks diff: %v", date1.Diff("weeks", date2))
+	}
+	// months uses (diffDate - receiver) calendar months
+	if date1.Diff("months", date2) != 1 {
+		t.Errorf("unexpected months diff: %v", date1.Diff("months", date2))
+	}
+	if date1.Diff("years", date2) != 0 {
+		t.Errorf("unexpected years diff: %v", date1.Diff("years", date2))
+	}
+	if date1.Diff("invalid", date2) != 0 {
+		t.Errorf("expected 0 for invalid unit")
+	}
+}
+
+func TestAddSubUnits(t *testing.T) {
+	datetime := "2023-03-01T12:00:00Z"
+	date, _ := NewDate(datetime)
+
+	units := []struct {
+		unit     string
+		amount   int
+		addExpect time.Time
+		subExpect time.Time
+	}{
+		{"second", 1, time.Date(2023, 3, 1, 12, 0, 1, 0, time.UTC), time.Date(2023, 3, 1, 11, 59, 59, 0, time.UTC)},
+		{"minute", 1, time.Date(2023, 3, 1, 12, 1, 0, 0, time.UTC), time.Date(2023, 3, 1, 11, 59, 0, 0, time.UTC)},
+		{"hour", 1, time.Date(2023, 3, 1, 13, 0, 0, 0, time.UTC), time.Date(2023, 3, 1, 11, 0, 0, 0, time.UTC)},
+		{"week", 1, time.Date(2023, 3, 8, 12, 0, 0, 0, time.UTC), time.Date(2023, 2, 22, 12, 0, 0, 0, time.UTC)},
+		{"month", 1, time.Date(2023, 4, 1, 12, 0, 0, 0, time.UTC), time.Date(2023, 2, 1, 12, 0, 0, 0, time.UTC)},
+		{"year", 1, time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC), time.Date(2022, 3, 1, 12, 0, 0, 0, time.UTC)},
+	}
+
+	for _, tc := range units {
+		base, _ := NewDate(datetime)
+		result := base.Add(tc.amount, tc.unit)
+		if result == nil || !result.date.Equal(tc.addExpect) {
+			t.Errorf("Add(%d, %s): expected %v, got %v", tc.amount, tc.unit, tc.addExpect, result)
+		}
+
+		base, _ = NewDate(datetime)
+		result = base.Sub(tc.amount, tc.unit)
+		if result == nil || !result.date.Equal(tc.subExpect) {
+			t.Errorf("Sub(%d, %s): expected %v, got %v", tc.amount, tc.unit, tc.subExpect, result)
+		}
+	}
+
+	if date.Add(1, "invalid") != nil {
+		t.Error("expected nil for invalid Add unit")
+	}
+	if date.Sub(1, "invalid") != nil {
+		t.Error("expected nil for invalid Sub unit")
+	}
 }
 
 func TestHourMinuteSecond(t *testing.T) {

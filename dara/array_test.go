@@ -403,6 +403,22 @@ func TestConcatArr(t *testing.T) {
 	if !reflect.DeepEqual(result, expectedMixed) {
 		t.Errorf("Expected '%v', but got '%v'", expectedMixed, result)
 	}
+
+	// Same-type non-pointer slices use reflect.MakeSlice path
+	plainIntArr1 := []int{1, 2}
+	plainIntArr2 := []int{3, 4}
+	result = ConcatArr(plainIntArr1, plainIntArr2)
+	expectedPlainInts := []int{1, 2, 3, 4}
+	if !reflect.DeepEqual(result, expectedPlainInts) {
+		t.Errorf("Expected '%v', but got '%v'", expectedPlainInts, result)
+	}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for non-slice inputs")
+		}
+	}()
+	ConcatArr("not", "slice")
 }
 
 func TestArrAppend(t *testing.T) {

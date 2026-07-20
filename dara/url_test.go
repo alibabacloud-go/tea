@@ -4,6 +4,16 @@ import (
 	"testing"
 )
 
+func TestParseURL(t *testing.T) {
+	u, err := ParseURL("http://example.com/path")
+	if err != nil {
+		t.Fatalf("ParseURL failed: %v", err)
+	}
+	if u.Hostname() != "example.com" {
+		t.Errorf("expected example.com, got %s", u.Hostname())
+	}
+}
+
 func TestNewURL(t *testing.T) {
 	tests := []struct {
 		urlString string

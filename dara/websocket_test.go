@@ -665,3 +665,207 @@ func TestConfigureNetDialer(t *testing.T) {
 		t.Error("Expected NetDialContext to be set")
 	}
 }
+
+func TestWebSocketRuntimeGetters(t *testing.T) {
+	ping := Int(1000)
+	pong := Int(2000)
+	enable := Bool(true)
+	reconnect := Int(3000)
+	maxReconnect := Int(5)
+	write := Int(4000)
+	handshake := Int(5000)
+	subProto := String("awap")
+	handler := &MockWebSocketHandler{}
+
+	runtimeOpts := &RuntimeOptions{
+		WebSocketPingInterval:      ping,
+		WebSocketPongTimeout:       pong,
+		WebSocketEnableReconnect:   enable,
+		WebSocketReconnectInterval: reconnect,
+		WebSocketMaxReconnectTimes: maxReconnect,
+		WebSocketWriteTimeout:      write,
+		WebSocketHandshakeTimeout:  handshake,
+		WebSocketHandler:           handler,
+	}
+
+	if GetWebSocketPingInterval(nil) != nil {
+		t.Error("expected nil for nil runtime")
+	}
+	if IntValue(GetWebSocketPingInterval(runtimeOpts)) != 1000 {
+		t.Error("unexpected ping interval")
+	}
+	if IntValue(GetWebSocketPongTimeout(runtimeOpts)) != 2000 {
+		t.Error("unexpected pong timeout")
+	}
+	if !BoolValue(GetWebSocketEnableReconnect(runtimeOpts)) {
+		t.Error("expected reconnect enabled")
+	}
+	if IntValue(GetWebSocketReconnectInterval(runtimeOpts)) != 3000 {
+		t.Error("unexpected reconnect interval")
+	}
+	if IntValue(GetWebSocketMaxReconnectTimes(runtimeOpts)) != 5 {
+		t.Error("unexpected max reconnect times")
+	}
+	if IntValue(GetWebSocketWriteTimeout(runtimeOpts)) != 4000 {
+		t.Error("unexpected write timeout")
+	}
+	if IntValue(GetWebSocketHandshakeTimeout(runtimeOpts)) != 5000 {
+		t.Error("unexpected handshake timeout")
+	}
+	if GetWebSocketHandler(runtimeOpts) == nil {
+		t.Error("expected handler from runtime options")
+	}
+	if GetWebSocketHandler("invalid") != nil {
+		t.Error("expected nil for invalid runtime type")
+	}
+
+	runtimeObj := &RuntimeObject{WebsocketSubProtocol: subProto}
+	if StringValue(GetWebsocketSubProtocol(runtimeObj)) != "awap" {
+		t.Error("unexpected sub protocol")
+	}
+	if GetWebsocketSubProtocol(nil) != nil {
+		t.Error("expected nil sub protocol for nil runtime")
+	}
+}
+
+func TestAbstractWebSocketHandler(t *testing.T) {
+	handler := &AbstractWebSocketHandler{}
+	session := &WebSocketSessionInfo{SessionID: "test"}
+	msg := &WebSocketMessage{Type: WebSocketMessageTypeText, Payload: []byte("hi")}
+
+	if err := handler.AfterConnectionEstablished(session); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if err := handler.HandleRawMessage(session, msg); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if err := handler.HandleError(session, errors.New("err")); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if err := handler.AfterConnectionClosed(session, 1000, "bye"); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestWebSocketSendAndSession(t *testing.T) {
+	server := createTestWebSocketServer(t)
+	defer server.Close()
+
+	handler := &MockWebSocketHandler{}
+	request := &Request{
+		Protocol: String("ws"),
+		Pathname: String("/"),
+		Headers: map[string]*string{
+			"host": String(server.Listener.Addr().String()),
+		},
+	}
+	runtimeObject := &RuntimeObject{
+		WebSocketPingInterval: Int(0),
+		WebSocketHandler:      handler,
+	}
+
+	client, err := NewDefaultWebSocketClient(handler)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	if err := client.SendText("before connect"); err == nil {
+		t.Error("expected error when not connected")
+	}
+	if err := client.SendBinary([]byte("data")); err == nil {
+		t.Error("expected error when not connected")
+	}
+	if client.GetSessionInfo() != nil {
+		t.Error("expected nil session before connect")
+	}
+
+	ctx := context.Background()
+	_, err = client.Connect(ctx, request, runtimeObject)
+	if err != nil {
+		t.Fatalf("connect failed: %v", err)
+	}
+
+	if client.GetSessionInfo() == nil {
+		t.Error("expected session info after connect")
+	}
+	if err := client.SendText("hello"); err != nil {
+		t.Errorf("SendText failed: %v", err)
+	}
+	if err := client.SendBinary([]byte{0x01, 0x02}); err != nil {
+		t.Errorf("SendBinary failed: %v", err)
+	}
+
+	client.Close()
+}
+
+func TestNewWebSocketClientAndConnectWithContext(t *testing.T) {
+	server := createTestWebSocketServer(t)
+	defer server.Close()
+
+	handler := &MockWebSocketHandler{}
+	request := &Request{
+		Protocol: String("ws"),
+		Pathname: String("/"),
+		Headers: map[string]*string{
+			"host": String(server.Listener.Addr().String()),
+		},
+	}
+	runtimeObject := &RuntimeObject{
+		WebSocketPingInterval: Int(0),
+		WebSocketHandler:      handler,
+	}
+
+	ctx := context.Background()
+	client, resp, err := NewWebSocketClientAndConnectWithContext(ctx, request, runtimeObject)
+	if err != nil {
+		t.Fatalf("NewWebSocketClientAndConnectWithContext failed: %v", err)
+	}
+	if client == nil || resp == nil {
+		t.Fatal("expected client and response")
+	}
+	if !client.IsConnected() {
+		t.Error("expected connected client")
+	}
+	client.Close()
+}
+
+func TestBuildWebSocketURL(t *testing.T) {
+	request := &Request{
+		Protocol: String("https"),
+		Domain:   String("example.com"),
+		Pathname: String("/ws"),
+		Query: map[string]*string{
+			"token": String("abc"),
+		},
+	}
+	urlStr, err := buildWebSocketURL(request)
+	if err != nil {
+		t.Fatalf("buildWebSocketURL failed: %v", err)
+	}
+	if urlStr != "wss://example.com/ws?token=abc" {
+		t.Errorf("unexpected url: %s", urlStr)
+	}
+
+	request = &Request{
+		Headers: map[string]*string{
+			"host": String("example.com"),
+		},
+	}
+	urlStr, err = buildWebSocketURL(request)
+	if err != nil {
+		t.Fatalf("buildWebSocketURL failed: %v", err)
+	}
+	if urlStr != "ws://example.com/" {
+		t.Errorf("unexpected default url: %s", urlStr)
+	}
+
+	_, err = buildWebSocketURL(nil)
+	if err == nil {
+		t.Error("expected error for nil request")
+	}
+
+	_, err = buildWebSocketURL(&Request{})
+	if err == nil {
+		t.Error("expected error when domain is missing")
+	}
+}
