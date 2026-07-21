@@ -1,8 +1,7 @@
 package dara
 
 import (
-	// "fmt"
-	// "math"
+	"fmt"
 	"math/rand"
 	"testing"
 )
@@ -193,6 +192,15 @@ func TestShouldRetry(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:    "Should not retry when options pointer semantics: Retryable false",
+			options: RetryOptions{Retryable: false},
+			ctx: RetryPolicyContext{
+				RetriesAttempted: 1,
+				Exception:        new(AErr).New(map[string]interface{}{"code": "A1Err"}),
+			},
+			expected: false,
+		},
+		{
 			name: "Should not retry when retries exhausted",
 			options: RetryOptions{
 				Retryable: true,
@@ -221,9 +229,38 @@ func TestShouldRetry(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "Should retry with default max attempts when no condition matches",
+			name: "Should retry when only ErrorCode matches",
 			options: RetryOptions{
 				Retryable: true,
+				RetryCondition: []*RetryCondition{
+					{MaxAttempts: 3, Exception: []string{"OtherErr"}, ErrorCode: []string{"A1Err"}},
+				},
+			},
+			ctx: RetryPolicyContext{
+				RetriesAttempted: 1,
+				Exception:        new(AErr).New(map[string]interface{}{"code": "A1Err"}),
+			},
+			expected: true,
+		},
+		{
+			name: "Should not retry when only ErrorCode matches but attempts exhausted",
+			options: RetryOptions{
+				Retryable: true,
+				RetryCondition: []*RetryCondition{
+					{MaxAttempts: 2, Exception: []string{"OtherErr"}, ErrorCode: []string{"A1Err"}},
+				},
+			},
+			ctx: RetryPolicyContext{
+				RetriesAttempted: 2,
+				Exception:        new(AErr).New(map[string]interface{}{"code": "A1Err"}),
+			},
+			expected: false,
+		},
+		{
+			name: "Should not retry when no RetryCondition matches",
+			options: RetryOptions{
+				Retryable:   true,
+				MaxAttempts: 5,
 				RetryCondition: []*RetryCondition{
 					{MaxAttempts: 3, Exception: []string{"AErr"}, ErrorCode: []string{"A1Err"}},
 				},
@@ -232,7 +269,7 @@ func TestShouldRetry(t *testing.T) {
 				RetriesAttempted: 2,
 				Exception:        new(BErr).New(map[string]interface{}{"Code": "B1Err"}),
 			},
-			expected: true,
+			expected: false,
 		},
 		{
 			name: "Should not retry with no retry condition",
@@ -252,17 +289,49 @@ func TestShouldRetry(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "Should default zero max attempts to MAX_ATTEMPTS",
+			name: "Should not retry when NoRetryCondition matches by ErrorCode only",
 			options: RetryOptions{
-				Retryable:    true,
-				MaxAttempts:  0,
+				Retryable: true,
+				RetryCondition: []*RetryCondition{
+					{MaxAttempts: 3, Exception: []string{"AErr"}, ErrorCode: []string{"A1Err"}},
+				},
+				NoRetryCondition: []*RetryCondition{
+					{Exception: []string{"Unrelated"}, ErrorCode: []string{"A1Err"}},
+				},
+			},
+			ctx: RetryPolicyContext{
+				RetriesAttempted: 1,
+				Exception:        new(AErr).New(map[string]interface{}{"code": "A1Err"}),
+			},
+			expected: false,
+		},
+		{
+			name: "Should not retry when RetryCondition list is empty",
+			options: RetryOptions{
+				Retryable:      true,
+				MaxAttempts:    5,
 				RetryCondition: []*RetryCondition{},
 			},
 			ctx: RetryPolicyContext{
-				RetriesAttempted: 2,
+				RetriesAttempted: 1,
 				Exception:        new(BErr).New(map[string]interface{}{"Code": "B1Err"}),
 			},
-			expected: true,
+			expected: false,
+		},
+		{
+			name: "Should not retry for non-BaseError even if MaxAttempts remain",
+			options: RetryOptions{
+				Retryable:   true,
+				MaxAttempts: 5,
+				RetryCondition: []*RetryCondition{
+					{MaxAttempts: 3, Exception: []string{"AErr"}, ErrorCode: []string{"A1Err"}},
+				},
+			},
+			ctx: RetryPolicyContext{
+				RetriesAttempted: 1,
+				Exception:        fmt.Errorf("plain error"),
+			},
+			expected: false,
 		},
 		{
 			name: "Should stop retrying after default MAX_ATTEMPTS",
@@ -288,6 +357,16 @@ func TestShouldRetry(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("Should not retry when options is nil pointer", func(t *testing.T) {
+		ctx := &RetryPolicyContext{
+			RetriesAttempted: 1,
+			Exception:        new(AErr).New(map[string]interface{}{"code": "A1Err"}),
+		}
+		if ShouldRetry(nil, ctx) {
+			t.Errorf("expected false when options is nil")
+		}
+	})
 }
 
 func TestFixedBackoffPolicy(t *testing.T) {

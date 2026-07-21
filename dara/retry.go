@@ -322,7 +322,9 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 		}
 	}
 
-	return retriesAttempted < effectiveMaxAttempts(options.MaxAttempts)
+	// Align with Node/TS/Python/PHP/C++/C#: unmatched (or non-BaseError) → do not retry
+	// via top-level MaxAttempts.
+	return false
 }
 
 // getBackoffDelay calculates backoff delay
