@@ -926,7 +926,7 @@ func (c *DefaultWebSocketClient) configureSOCKS5Proxy(
 	}
 
 	socks5Dialer, err := proxy.SOCKS5(
-		socks5Network,
+		getDialNetwork(socks5Network, BoolValue(runtimeObject.Ipv4Only)),
 		socks5Proxy.Host,
 		auth,
 		&net.Dialer{
@@ -1021,6 +1021,7 @@ func (c *DefaultWebSocketClient) configureNetDialer(
 	}
 
 	localAddr := getLocalAddr(StringValue(runtimeObject.LocalAddr))
+	ipv4Only := BoolValue(runtimeObject.Ipv4Only)
 	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		d := &net.Dialer{
 			Timeout:   connectTimeout,
@@ -1029,7 +1030,7 @@ func (c *DefaultWebSocketClient) configureNetDialer(
 		if localAddr != nil {
 			d.LocalAddr = localAddr
 		}
-		return d.DialContext(ctx, network, addr)
+		return d.DialContext(ctx, getDialNetwork(network, ipv4Only), addr)
 	}
 }
 

@@ -106,6 +106,7 @@ type RuntimeObject struct {
 	Ca                *string                `json:"ca" xml:"ca"`
 	Socks5Proxy       *string                `json:"socks5Proxy" xml:"socks5Proxy"`
 	Socks5NetWork     *string                `json:"socks5NetWork" xml:"socks5NetWork"`
+	Ipv4Only          *bool                  `json:"ipv4Only" xml:"ipv4Only"`
 	Listener          utils.ProgressListener `json:"listener" xml:"listener"`
 	Tracker           *utils.ReaderTracker   `json:"tracker" xml:"tracker"`
 	Logger            *utils.Logger          `json:"logger" xml:"logger"`
@@ -128,7 +129,8 @@ type RuntimeObject struct {
 func (r *RuntimeObject) getClientTag(domain string) string {
 	return strconv.FormatBool(BoolValue(r.IgnoreSSL)) + strconv.Itoa(IntValue(r.ReadTimeout)) +
 		strconv.Itoa(IntValue(r.ConnectTimeout)) + strconv.Itoa(IntValue(r.IdleTimeout)) + StringValue(r.LocalAddr) + StringValue(r.HttpProxy) +
-		StringValue(r.HttpsProxy) + StringValue(r.NoProxy) + StringValue(r.Socks5Proxy) + StringValue(r.Socks5NetWork) + domain
+		StringValue(r.HttpsProxy) + StringValue(r.NoProxy) + StringValue(r.Socks5Proxy) + StringValue(r.Socks5NetWork) +
+		strconv.FormatBool(BoolValue(r.Ipv4Only)) + domain
 }
 
 // NewRuntimeObject is used for shortly create runtime object
@@ -149,6 +151,7 @@ func NewRuntimeObject(runtime map[string]interface{}) *RuntimeObject {
 		MaxIdleConns:   TransInterfaceToInt(runtime["maxIdleConns"]),
 		Socks5Proxy:    TransInterfaceToString(runtime["socks5Proxy"]),
 		Socks5NetWork:  TransInterfaceToString(runtime["socks5NetWork"]),
+		Ipv4Only:       TransInterfaceToBool(runtime["ipv4Only"]),
 		Key:            TransInterfaceToString(runtime["key"]),
 		Cert:           TransInterfaceToString(runtime["cert"]),
 		Ca:             TransInterfaceToString(runtime["ca"]),
@@ -586,7 +589,8 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 					Password: password,
 				}
 			}
-			dialer, err := proxy.SOCKS5(strings.ToLower(StringValue(runtime.Socks5NetWork)), socks5Proxy.Host, auth,
+			socks5Network := getDialNetwork(strings.ToLower(StringValue(runtime.Socks5NetWork)), BoolValue(runtime.Ipv4Only))
+			dialer, err := proxy.SOCKS5(socks5Network, socks5Proxy.Host, auth,
 				&net.Dialer{
 					Timeout:   time.Duration(IntValue(runtime.ConnectTimeout)) * time.Millisecond,
 					DualStack: true,
@@ -743,8 +747,21 @@ func setDialContext(runtime *RuntimeObject) func(cxt context.Context, net, addr 
 		if runtime.LocalAddr != nil && StringValue(runtime.LocalAddr) != "" {
 			dialer.LocalAddr = getLocalAddr(StringValue(runtime.LocalAddr))
 		}
-		return dialer.DialContext(ctx, network, address)
+		return dialer.DialContext(ctx, getDialNetwork(network, BoolValue(runtime.Ipv4Only)), address)
 	}
+}
+
+// getDialNetwork restricts TCP dialing to IPv4 when ipv4Only is set, so that
+// only A records are resolved and IPv6 is never used as a fallback.
+func getDialNetwork(network string, ipv4Only bool) string {
+	if !ipv4Only {
+		return network
+	}
+	switch network {
+	case "", "tcp", "tcp4", "tcp6":
+		return "tcp4"
+	}
+	return network
 }
 
 func ToObject(obj interface{}) map[string]interface{} {
