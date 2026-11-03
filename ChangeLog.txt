@@ -1,0 +1,7 @@
+2026-11-03 Version: v1.5.4
+1. Support ipv4Only option to restrict SDK HTTP connections to IPv4 only.
+
+2026-07-21 Version: v1.5.3
+1. Fix: preserve and print non-empty Detail on SDKError.
+2. Fix: exponential backoff should be period * 2^retries.
+3. Test: raise overall statement coverage to ≥90%.
