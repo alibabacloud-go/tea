@@ -378,6 +378,30 @@ func TestShouldRetry(t *testing.T) {
 	})
 }
 
+type retryCodeOnlyError struct{ BaseError }
+
+func (retryCodeOnlyError) Error() string    { return "test error" }
+func (retryCodeOnlyError) GetCode() *string { return String("TestCode") }
+
+func TestRetryByCodeDoesNotCallGetName(t *testing.T) {
+	ctx := &RetryPolicyContext{RetriesAttempted: 1, Exception: retryCodeOnlyError{}}
+	options := &RetryOptions{
+		Retryable: true,
+		RetryCondition: []*RetryCondition{{
+			ErrorCode:   []string{"TestCode"},
+			MaxAttempts: 3,
+			MaxDelay:    500,
+			Backoff:     &FixedBackoffPolicy{Period: 250},
+		}},
+	}
+	if !ShouldRetry(options, ctx) {
+		t.Fatal("expected the error code to match")
+	}
+	if got := GetBackoffDelay(options, ctx); got != 250 {
+		t.Fatalf("got backoff %d, want 250", got)
+	}
+}
+
 type retryTimeoutError struct{}
 
 func (retryTimeoutError) Error() string   { return "transport timeout" }

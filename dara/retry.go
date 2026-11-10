@@ -278,15 +278,16 @@ func NewRetryOptions(options map[string]interface{}) *RetryOptions {
 	}
 }
 
-// retryErrorInfo 只为条件匹配提取名称和错误码，不包装或替换原始错误。
-func retryErrorInfo(err error) (name, code string, ok bool) {
+// retryErrorInfo defers each BaseError getter until its condition is checked.
+func retryErrorInfo(err error) (name, code func() *string, ok bool) {
 	if baseErr, ok := err.(BaseError); ok {
-		return StringValue(baseErr.GetName()), StringValue(baseErr.GetCode()), true
+		return baseErr.GetName, baseErr.GetCode, true
 	}
-	if code := transportErrorCode(err); code != "" {
-		return "RetryError", code, true
+	if transportCode := transportErrorCode(err); transportCode != "" {
+		name, code := String("RetryError"), String(transportCode)
+		return func() *string { return name }, func() *string { return code }, true
 	}
-	return "", "", false
+	return nil, nil, false
 }
 
 func transportErrorCode(err error) string {
@@ -335,12 +336,12 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 
 		for _, condition := range conditions {
 			for _, exc := range condition.Exception {
-				if exc == name {
+				if exc == StringValue(name()) {
 					return false
 				}
 			}
 			for _, code := range condition.ErrorCode {
-				if code == errorCode {
+				if code == StringValue(errorCode()) {
 					return false
 				}
 			}
@@ -349,7 +350,7 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 		conditions = options.RetryCondition
 		for _, condition := range conditions {
 			for _, exc := range condition.Exception {
-				if exc == name {
+				if exc == StringValue(name()) {
 					if retriesAttempted >= effectiveMaxAttempts(condition.MaxAttempts) {
 						return false
 					}
@@ -357,7 +358,7 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 				}
 			}
 			for _, code := range condition.ErrorCode {
-				if code == errorCode {
+				if code == StringValue(errorCode()) {
 					if retriesAttempted >= effectiveMaxAttempts(condition.MaxAttempts) {
 						return false
 					}
@@ -386,7 +387,7 @@ func GetBackoffDelay(options *RetryOptions, ctx *RetryPolicyContext) int {
 	if name, errorCode, ok := retryErrorInfo(ex); ok {
 		for _, condition := range conditions {
 			for _, exc := range condition.Exception {
-				if exc == name {
+				if exc == StringValue(name()) {
 					maxDelay := condition.MaxDelay
 					// Simulated "retryAfter" from an error response
 					if respErr, ok := ex.(ResponseError); ok {
@@ -405,7 +406,7 @@ func GetBackoffDelay(options *RetryOptions, ctx *RetryPolicyContext) int {
 			}
 
 			for _, code := range condition.ErrorCode {
-				if code == errorCode {
+				if code == StringValue(errorCode()) {
 					maxDelay := condition.MaxDelay
 					// Simulated "retryAfter" from an error response
 					if respErr, ok := ex.(ResponseError); ok {
