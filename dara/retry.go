@@ -1,9 +1,14 @@
 package dara
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
+	"net"
+	"net/url"
 )
 
 const (
@@ -273,6 +278,46 @@ func NewRetryOptions(options map[string]interface{}) *RetryOptions {
 	}
 }
 
+// retryErrorInfo 只为条件匹配提取名称和错误码，不包装或替换原始错误。
+func retryErrorInfo(err error) (name, code string, ok bool) {
+	if baseErr, ok := err.(BaseError); ok {
+		return StringValue(baseErr.GetName()), StringValue(baseErr.GetCode()), true
+	}
+	if code := transportErrorCode(err); code != "" {
+		return "RetryError", code, true
+	}
+	return "", "", false
+}
+
+func transportErrorCode(err error) string {
+	var urlErr *url.Error
+	var opErr *net.OpError
+	if !errors.As(err, &urlErr) && !errors.As(err, &opErr) {
+		return ""
+	}
+	if errors.Is(err, context.Canceled) {
+		return ""
+	}
+	// HTTP 自身的超时也可能通过 Is 匹配 DeadlineExceeded，
+	// 仅排除错误链中实际存在的调用方截止时间错误。
+	for cause := err; cause != nil; cause = errors.Unwrap(cause) {
+		if cause == context.DeadlineExceeded {
+			return ""
+		}
+	}
+	if code := transportErrnoCode(err); code != "" {
+		return code
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return "EOF"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "Timeout"
+	}
+	return ""
+}
+
 // shouldRetry determines if a retry should be attempted
 func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 	if ctx.RetriesAttempted == 0 {
@@ -285,17 +330,17 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 
 	retriesAttempted := ctx.RetriesAttempted
 	ex := ctx.Exception
-	if baseErr, ok := ex.(BaseError); ok {
+	if name, errorCode, ok := retryErrorInfo(ex); ok {
 		conditions := options.NoRetryCondition
 
 		for _, condition := range conditions {
 			for _, exc := range condition.Exception {
-				if exc == StringValue(baseErr.GetName()) {
+				if exc == name {
 					return false
 				}
 			}
 			for _, code := range condition.ErrorCode {
-				if code == StringValue(baseErr.GetCode()) {
+				if code == errorCode {
 					return false
 				}
 			}
@@ -304,7 +349,7 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 		conditions = options.RetryCondition
 		for _, condition := range conditions {
 			for _, exc := range condition.Exception {
-				if exc == StringValue(baseErr.GetName()) {
+				if exc == name {
 					if retriesAttempted >= effectiveMaxAttempts(condition.MaxAttempts) {
 						return false
 					}
@@ -312,7 +357,7 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 				}
 			}
 			for _, code := range condition.ErrorCode {
-				if code == StringValue(baseErr.GetCode()) {
+				if code == errorCode {
 					if retriesAttempted >= effectiveMaxAttempts(condition.MaxAttempts) {
 						return false
 					}
@@ -322,8 +367,7 @@ func ShouldRetry(options *RetryOptions, ctx *RetryPolicyContext) bool {
 		}
 	}
 
-	// Align with Node/TS/Python/PHP/C++/C#: unmatched (or non-BaseError) → do not retry
-	// via top-level MaxAttempts.
+	// 未匹配显式条件的错误不使用顶层 MaxAttempts 兜底重试。
 	return false
 }
 
@@ -339,10 +383,10 @@ func GetBackoffDelay(options *RetryOptions, ctx *RetryPolicyContext) int {
 
 	ex := ctx.Exception
 	conditions := options.RetryCondition
-	if baseErr, ok := ex.(BaseError); ok {
+	if name, errorCode, ok := retryErrorInfo(ex); ok {
 		for _, condition := range conditions {
 			for _, exc := range condition.Exception {
-				if exc == StringValue(baseErr.GetName()) {
+				if exc == name {
 					maxDelay := condition.MaxDelay
 					// Simulated "retryAfter" from an error response
 					if respErr, ok := ex.(ResponseError); ok {
@@ -361,7 +405,7 @@ func GetBackoffDelay(options *RetryOptions, ctx *RetryPolicyContext) int {
 			}
 
 			for _, code := range condition.ErrorCode {
-				if code == StringValue(baseErr.GetCode()) {
+				if code == errorCode {
 					maxDelay := condition.MaxDelay
 					// Simulated "retryAfter" from an error response
 					if respErr, ok := ex.(ResponseError); ok {
