@@ -1,9 +1,18 @@
 package dara
 
 import (
+	"context"
+	"crypto/x509"
+	"errors"
 	"fmt"
+	"io"
 	"math/rand"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
+	"time"
 )
 
 type AErr struct {
@@ -367,6 +376,179 @@ func TestShouldRetry(t *testing.T) {
 			t.Errorf("expected false when options is nil")
 		}
 	})
+}
+
+type retryTimeoutError struct{}
+
+func (retryTimeoutError) Error() string   { return "transport timeout" }
+func (retryTimeoutError) Timeout() bool   { return true }
+func (retryTimeoutError) Temporary() bool { return true }
+func (retryTimeoutError) Is(err error) bool {
+	return err == context.DeadlineExceeded
+}
+
+func assertTransportRetry(t *testing.T, err error, code string) {
+	t.Helper()
+	ctx := &RetryPolicyContext{RetriesAttempted: 1, Exception: err}
+	for _, field := range []string{"exception", "errorCode"} {
+		value := "RetryError"
+		if field == "errorCode" {
+			value = code
+		}
+		condition := NewRetryCondition(map[string]interface{}{
+			field:         []string{value},
+			"maxAttempts": 3,
+			"maxDelay":    450,
+			"backoff":     map[string]interface{}{"policy": "Fixed", "period": 650},
+		})
+		options := &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{condition}}
+		if !ShouldRetry(options, ctx) {
+			t.Errorf("%s: expected retry for %T (%v)", field, err, err)
+		}
+		if delay := GetBackoffDelay(options, ctx); delay != 450 {
+			t.Errorf("%s: expected capped delay 450, got %d", field, delay)
+		}
+	}
+	if ctx.Exception != err || TeaSDKError(err) != err {
+		t.Error("the original transport error must be preserved")
+	}
+}
+
+func TestTransportRetryClassification(t *testing.T) {
+	wrap := func(err error) error { return &url.Error{Op: "Post", URL: "http://localhost", Err: err} }
+	for _, test := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{"url timeout", wrap(retryTimeoutError{}), "Timeout"},
+		{"op timeout", &net.OpError{Op: "read", Net: "tcp", Err: retryTimeoutError{}}, "Timeout"},
+		{"wrapped transport timeout", fmt.Errorf("request: %w", wrap(retryTimeoutError{})), "Timeout"},
+		{"url EOF", wrap(io.EOF), "EOF"},
+		{"url unexpected EOF", wrap(io.ErrUnexpectedEOF), "EOF"},
+		{"op EOF", &net.OpError{Op: "read", Net: "tcp", Err: io.EOF}, "EOF"},
+	} {
+		t.Run(test.name, func(t *testing.T) { assertTransportRetry(t, test.err, test.code) })
+	}
+
+	options := &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{{Exception: []string{"RetryError"}}}}
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{"nil", nil},
+		{"plain error", errors.New("plain error")},
+		{"bare EOF", io.EOF},
+		{"bare unexpected EOF", io.ErrUnexpectedEOF},
+		{"bare timeout", retryTimeoutError{}},
+		{"unsupported scheme", wrap(errors.New("unsupported protocol scheme"))},
+		{"certificate error", wrap(x509.UnknownAuthorityError{})},
+		{"DNS not found", wrap(&net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{IsNotFound: true}})},
+		{"canceled", wrap(context.Canceled)},
+		{"wrapped canceled", wrap(fmt.Errorf("request: %w", context.Canceled))},
+		{"deadline", wrap(context.DeadlineExceeded)},
+		{"op deadline", &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}},
+		{"wrapped deadline", wrap(fmt.Errorf("request: %w", context.DeadlineExceeded))},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := &RetryPolicyContext{RetriesAttempted: 1, Exception: test.err}
+			if ShouldRetry(options, ctx) {
+				t.Errorf("expected no retry for %T (%v)", test.err, test.err)
+			}
+		})
+	}
+}
+
+func TestTransportRetryConditions(t *testing.T) {
+	err := &url.Error{Op: "Post", URL: "http://localhost", Err: retryTimeoutError{}}
+	condition := &RetryCondition{Exception: []string{"RetryError"}, MaxAttempts: 3}
+	for _, test := range []struct {
+		name     string
+		options  *RetryOptions
+		attempts int
+		want     bool
+	}{
+		{"first attempt", nil, 0, true},
+		{"nil options", nil, 1, false},
+		{"disabled", &RetryOptions{RetryCondition: []*RetryCondition{condition}}, 1, false},
+		{"no conditions", &RetryOptions{Retryable: true, MaxAttempts: 5}, 1, false},
+		{"HTTP only", &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{{Exception: []string{"ServerError"}}}}, 1, false},
+		{"matched", &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{condition}}, 2, true},
+		{"attempt limit", &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{condition}}, 3, false},
+		{"default limit", &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{{Exception: []string{"RetryError"}}}}, 3, false},
+		{"code limit", &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{{ErrorCode: []string{"Timeout"}, MaxAttempts: 1}}}, 1, false},
+		{"excluded name", &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{condition}, NoRetryCondition: []*RetryCondition{{Exception: []string{"RetryError"}}}}, 1, false},
+		{"excluded code", &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{condition}, NoRetryCondition: []*RetryCondition{{ErrorCode: []string{"Timeout"}}}}, 1, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := &RetryPolicyContext{RetriesAttempted: test.attempts, Exception: err}
+			if got := ShouldRetry(test.options, ctx); got != test.want {
+				t.Errorf("expected %v, got %v", test.want, got)
+			}
+		})
+	}
+}
+
+func TestTransportRetryHTTPTimeout(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	defer close(release)
+
+	transport := &http.Transport{ResponseHeaderTimeout: 20 * time.Millisecond}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: time.Second}
+	_, err := client.Get(server.URL)
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) || !urlErr.Timeout() {
+		t.Fatalf("expected URL timeout, got %T (%v)", err, err)
+	}
+	assertTransportRetry(t, err, "Timeout")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequest("GET", server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadlineTransport := &http.Transport{}
+	defer deadlineTransport.CloseIdleConnections()
+	deadlineClient := &http.Client{Transport: deadlineTransport, Timeout: time.Second}
+	_, err = deadlineClient.Do(req.WithContext(ctx))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected caller deadline, got %v", err)
+	}
+	options := &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{{Exception: []string{"RetryError"}}}}
+	if ShouldRetry(options, &RetryPolicyContext{RetriesAttempted: 1, Exception: err}) {
+		t.Error("caller deadline must not retry")
+	}
+}
+
+func TestTransportRetryBackoff(t *testing.T) {
+	ctx := &RetryPolicyContext{RetriesAttempted: 1, Exception: &url.Error{Err: retryTimeoutError{}}}
+	unmatched := &RetryCondition{Exception: []string{"ServerError"}, Backoff: &FixedBackoffPolicy{Period: 900}, MaxDelay: 1000}
+	for _, test := range []struct {
+		name      string
+		condition *RetryCondition
+		want      int
+	}{
+		{"name", &RetryCondition{Exception: []string{"RetryError"}, Backoff: &FixedBackoffPolicy{Period: 250}, MaxDelay: 1000}, 250},
+		{"code", &RetryCondition{ErrorCode: []string{"Timeout"}, Backoff: &FixedBackoffPolicy{Period: 350}, MaxDelay: 1000}, 350},
+		{"default backoff", &RetryCondition{Exception: []string{"RetryError"}}, MIN_DELAY_TIME},
+		{"unmatched", unmatched, MIN_DELAY_TIME},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			options := &RetryOptions{Retryable: true, RetryCondition: []*RetryCondition{unmatched, test.condition}}
+			if got := GetBackoffDelay(options, ctx); got != test.want {
+				t.Errorf("expected delay %d, got %d", test.want, got)
+			}
+		})
+	}
 }
 
 func TestFixedBackoffPolicy(t *testing.T) {
